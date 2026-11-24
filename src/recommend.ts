@@ -10,6 +10,7 @@ export type Entry = {
   model: string;
   flags: string[];
   weightsGB: number;
+  draft?: string;
   evidence: string;
   note: string;
 };
@@ -28,15 +29,15 @@ export function recommend(mac: Pick<Mac, "family" | "memoryGB">, entries = loadE
 }
 
 export const SPLASH_FREE_GB = 10.7;
-export const DRAFT_GB = 3.6;
+export const DRAFT_GB = 3.85;
 
-export function diskWarnings(mac: Pick<Mac, "freeDiskGB">, pick: Entry | null, downloaded: boolean): string[] {
+export function diskWarnings(mac: Pick<Mac, "freeDiskGB">, downloadGB: number): string[] {
   const out: string[] = [];
-  const need = (downloaded || !pick ? 0 : pick.weightsGB + DRAFT_GB) + SPLASH_FREE_GB;
+  const need = downloadGB + SPLASH_FREE_GB;
   if (mac.freeDiskGB < need) {
     out.push(`Free disk ${mac.freeDiskGB.toFixed(1)} GB, need about ${need.toFixed(0)} GB.`);
   }
-  const cacheGB = Math.max(0, (mac.freeDiskGB - (downloaded || !pick ? 0 : pick.weightsGB + DRAFT_GB) - SPLASH_FREE_GB) / 4);
+  const cacheGB = Math.max(0, (mac.freeDiskGB - downloadGB - SPLASH_FREE_GB) / 4);
   if (cacheGB < 4) {
     out.push(`SSD prompt cache will get about ${cacheGB.toFixed(1)} GB: new sessions re-read their prompt more often. Free ~25 GB for a useful cache.`);
   }

@@ -26,10 +26,9 @@ test("tier pick", () => {
 });
 
 test("disk warnings", () => {
-  const pick = recommend({ family: 1, memoryGB: 32 }).pick;
-  assert.equal(diskWarnings({ freeDiskGB: 100 }, pick, false).length, 0);
-  assert.equal(diskWarnings({ freeDiskGB: 16 }, pick, true).length, 1);
-  assert.equal(diskWarnings({ freeDiskGB: 20 }, pick, false).length, 2);
+  assert.equal(diskWarnings({ freeDiskGB: 100 }, 19).length, 0);
+  assert.equal(diskWarnings({ freeDiskGB: 16 }, 0).length, 1);
+  assert.equal(diskWarnings({ freeDiskGB: 20 }, 19).length, 2);
 });
 
 test("models listing", () => {
@@ -111,4 +110,41 @@ test("downloaded check", async () => {
   assert.equal(isDownloaded("a/b-GGUF:UD-Q4_K_M", hub), true);
   assert.equal(isDownloaded("a/b-GGUF:Q4_0", hub), false);
   assert.equal(isDownloaded("a/c", hub), false);
+});
+
+test("download plan picks Splash's files", async () => {
+  const { pickFiles, missingFiles, downloadLines } = await import("../src/download.ts");
+  const tree = (name: string) => fixture(name).filter((e: any) => e.type === "file").map((e: any) => ({ path: e.path, size: e.lfs?.size ?? e.size, blob: e.lfs?.oid ?? e.oid }));
+  const paths = (files: { path: string }[]) => files.map((f) => f.path);
+  assert.deepEqual(paths(pickFiles(tree("tree-gguf.json"), "UD-Q4_K_M", true)), ["Qwen3.8-27B-UD-Q4_K_M.gguf"]);
+  assert.deepEqual(paths(pickFiles(tree("tree-gguf.json"), "UD-Q4_K_M", false)), ["Qwen3.8-27B-UD-Q4_K_M.gguf", "mmproj-BF16.gguf"]);
+  assert.deepEqual(paths(pickFiles(tree("tree-bonsai.json"), "Q2_0", true)), ["Ternary-Bonsai-2-27B-Q2_0.gguf"]);
+  assert.deepEqual(paths(pickFiles(tree("tree-bonsai.json"), "PQ2_0", false)), ["Ternary-Bonsai-2-27B-PQ2_0.gguf", "Ternary-Bonsai-2-27B-mmproj-BF16.gguf"]);
+  const mlx = pickFiles(tree("tree-mlx.json"), undefined, true);
+  assert.equal(mlx.length, 3);
+  assert.ok(mlx.every((f) => f.path.endsWith(".safetensors") && f.size > 5e9));
+
+  const { mkdtempSync, mkdirSync, writeFileSync, truncateSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const hub = mkdtempSync(join(tmpdir(), "hub-"));
+  const blobs = join(hub, "models--o--r", "blobs");
+  mkdirSync(blobs, { recursive: true });
+  const files = [{ path: "a", size: 4, blob: "x" }, { path: "b", size: 4, blob: "y" }, { path: "c", size: 4, blob: "z" }];
+  writeFileSync(join(blobs, "x"), "1234");
+  writeFileSync(join(blobs, "y"), "12");
+  assert.deepEqual(paths(missingFiles("o/r", files, hub)), ["b", "c"]);
+  truncateSync(join(blobs, "y"), 4);
+  assert.deepEqual(paths(missingFiles("o/r", files, hub)), ["c"]);
+
+  const done = { repo: "o/d", files: [files[0]], missing: [] };
+  assert.deepEqual(downloadLines([done]), ["Downloaded: all 1 files in the Hugging Face cache."]);
+  assert.deepEqual(downloadLines([{ repo: "o/r", files, missing: [files[2]] }, done]), ["Download: 0.0 GB of 0.0 GB", "  o/r: 1 of 3 files, 0.0 GB", "  o/d: complete"]);
+});
+
+test("runtime version", async () => {
+  const { versionOf } = await import("../src/server.ts");
+  assert.equal(versionOf("Splash 1.7.1-m1"), "1.7.1-m1");
+  assert.equal(versionOf("Splash 1.7.2\n"), "1.7.2");
+  assert.equal(versionOf(""), null);
 });

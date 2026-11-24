@@ -32,6 +32,21 @@ export function launcherVersion(path: string): string {
   }
 }
 
+export const RELEASES: { [runtime: string]: string } = { "splash-m1": "paperniuk/splash", splash: "incoai/splash" };
+
+export function versionOf(text: string): string | null {
+  return /Splash\s+(\S+)/.exec(text)?.[1] ?? null;
+}
+
+export async function latestRelease(runtime: string, timeoutMs = 5000): Promise<string | null> {
+  try {
+    const r = await fetch(`https://github.com/${RELEASES[runtime]}/releases/latest`, { redirect: "manual", signal: AbortSignal.timeout(timeoutMs) });
+    return /\/releases\/tag\/([^/?#]+)/.exec(r.headers.get("location") ?? "")?.[1] ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export function readRecord(port: number): Record | null {
   try {
     return JSON.parse(readFileSync(join(RUNTIME_DIR, `serve-${port}.json`), "utf8"));

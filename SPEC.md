@@ -35,7 +35,7 @@ All under one command, `/splash`, with argument completion.
 | Command | Does |
 | --- | --- |
 | `/splash` | Status: runtime found, server phase, model, context, port, who started it. Offers the next action (start, stop, use). |
-| `/splash doctor` | Chip, memory, free disk, runtime and version; the recommended model and flags with the evidence behind them; warnings (disk, memory, macOS version). Read-only. |
+| `/splash doctor` | Chip, memory, free disk, runtime and version (and whether a newer release is out); the recommended model and flags with the evidence behind them; what is left to download, file by file; warnings (disk, memory, macOS version). Read-only. |
 | `/splash start [model]` | Start a server in the background with the recommended or given model and flags, show its phases until ready, then register the provider and switch the session to it. |
 | `/splash stop` | Stop the server. Asks first when the package did not start it. |
 | `/splash use` | Register the running server as the provider and switch the session to it (for a server started outside Pi). |
@@ -52,7 +52,8 @@ All under one command, `/splash`, with argument completion.
 ## Recommendation (`data/recommendations.json`)
 
 Data, not code, so a new measurement is a JSON change. Each entry:
-`minMemoryGB`, `runtimes`, `model`, `flags`, `weightsGB`, `evidence`
+`minMemoryGB`, `runtimes`, `model`, `flags`, `weightsGB`, `draft` (the
+DFlash2 repo Splash pairs with the family, `install/families.py`), `evidence`
 (`measured` with the Mac it was measured on, or `extrapolated`), `note`.
 The pick is the entry with the highest `minMemoryGB` at or below the Mac's
 memory for its runtime. Doctor prints the pick and the next tier down.
@@ -68,6 +69,29 @@ First table, Qwen3.8-27B (from docs/quants.md and the splash-m1 README):
 | 16 GB | `prism-ml/Ternary-Bonsai-2-27B-gguf:PQ2_0` | `--language-only`, needs `iogpu.wired_limit_mb` | splash-m1 README, capped run |
 
 Numbers are refreshed when docs/quants.md is (1.7.1-m1 re-run in progress).
+
+## Download check (`src/download.ts`)
+
+- Files Splash fetches, as `install/upstream.py` picks them: MLX repo -> root
+  `*.safetensors`; GGUF `:VARIANT` -> the root file whose name ends in
+  `-VARIANT` (or the `VARIANT/` folder of split parts), plus without
+  `--language-only` the root `mmproj` projector, BF16 before F32 before F16
+  (Splash reads the header; the name is close enough); the draft's
+  `*.safetensors`.
+- Sizes and blob IDs from `GET huggingface.co/api/models/R/tree/main?recursive=true`
+  (5 s, one retry); a file counts as present when
+  `~/.cache/huggingface/hub/models--R/blobs/<sha256>` has its size, so a broken
+  download shows as missing. Hub unreachable -> say so, fall back to
+  `weightsGB` + draft and the old "any safetensors/gguf" guess.
+- Disk warnings use the bytes actually missing.
+- The missing total is what start-up download progress will count against.
+
+## Updates
+
+Doctor reads the latest tag from the `releases/latest` redirect of
+`paperniuk/splash` (splash-m1) or `incoai/splash` (no API rate limit) and,
+when it differs from `<launcher> --version`, prints the update command. The
+package still never installs Splash itself.
 
 ## Server lifecycle (`src/server.ts`)
 

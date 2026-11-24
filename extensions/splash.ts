@@ -2,11 +2,12 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { detectMac, macosWarning, runtimeFor } from "../src/mac.ts";
-import { recommend, diskWarnings, isDownloaded } from "../src/recommend.ts";
+import { DRAFT_GB, recommend, diskWarnings, isDownloaded } from "../src/recommend.ts";
+import { bytes, downloadLines, planDownload } from "../src/download.ts";
 import { providerConfig, providerName } from "../src/provider.ts";
 import {
-  DEFAULT_PORT, STATE_DIR, describe, findLauncher, launcherVersion, logPath, probe, readRecord,
-  start, startedByUs, stop, waitReady,
+  DEFAULT_PORT, STATE_DIR, describe, findLauncher, latestRelease, launcherVersion, logPath, probe, readRecord,
+  start, startedByUs, stop, versionOf, waitReady,
 } from "../src/server.ts";
 
 type Config = { port?: number; model?: string; flags?: string[]; stopOnExit?: boolean; keepAwake?: boolean; launcher?: string };
@@ -48,23 +49,41 @@ export default async function (pi: ExtensionAPI) {
     return { name, path: c.launcher ?? findLauncher(name) };
   }
 
-  function doctor(): string[] {
+  async function doctor(): Promise<string[]> {
     const mac = detectMac();
     const { runtime, pick, smaller } = recommend(mac);
     const l = launcher();
+    const installed = l.path ? versionOf(launcherVersion(l.path)) : null;
+    const [latest, plan] = await Promise.all([
+      l.path ? latestRelease(l.name) : Promise.resolve(null),
+      pick ? planDownload(pick.model, pick.draft, pick.flags.includes("--language-only")).catch((e: Error) => e) : Promise.resolve(null),
+    ]);
+    const update = l.name === "splash" ? "brew upgrade incoai/tap/splash" : INSTALL[l.name as keyof typeof INSTALL];
     const lines = [
       `${mac.chip}, ${mac.memoryGB} GB, macOS ${mac.macos}, ${mac.freeDiskGB.toFixed(1)} GB free`,
-      l.path ? `Runtime: ${l.name} ${launcherVersion(l.path)} (${l.path})` : `Runtime: ${runtime ?? "none"} not installed. Install: ${INSTALL[(runtime ?? "splash") as keyof typeof INSTALL]}`,
+      !l.path
+        ? `Runtime: ${runtime ?? "none"} not installed. Install: ${INSTALL[(runtime ?? "splash") as keyof typeof INSTALL]}`
+        : `Runtime: ${l.name} ${installed ?? "?"}${latest === installed ? ", latest" : ""} (${l.path})`,
     ];
+    if (l.path && latest && latest !== installed) lines.push(`  ${latest} is out. Update: ${update}`);
+    let downloadGB = 0;
     if (!pick) lines.push("No measured model fits this Mac yet.");
     else {
       lines.push(`Recommended: ${pick.model} ${pick.flags.join(" ")}`.trim());
       lines.push(`  ${pick.note}`, `  Evidence: ${pick.evidence}`);
-      lines.push(isDownloaded(pick.model) ? "  Already downloaded." : `  Download: ${pick.weightsGB} GB + draft.`);
+      if (plan instanceof Error || !plan) {
+        const have = isDownloaded(pick.model);
+        downloadGB = have ? 0 : pick.weightsGB + DRAFT_GB;
+        lines.push(`  Hugging Face Hub not reachable (${(plan as Error)?.message ?? "no plan"}), so files are not checked.`);
+        lines.push(have ? "  Model looks downloaded; the draft is not checked." : `  Download: about ${downloadGB.toFixed(1)} GB with the draft.`);
+      } else {
+        downloadGB = bytes(plan.flatMap((r) => r.missing)) / 1e9;
+        lines.push(...downloadLines(plan).map((x) => `  ${x}`));
+      }
       if (smaller) lines.push(`Smaller: ${smaller.model} (${smaller.weightsGB} GB)`);
     }
     const macos = macosWarning(runtime, mac.macos);
-    for (const w of [...(macos ? [macos] : []), ...diskWarnings(mac, pick, pick ? isDownloaded(pick.model) : false)]) lines.push(`Warning: ${w}`);
+    for (const w of [...(macos ? [macos] : []), ...diskWarnings(mac, downloadGB)]) lines.push(`Warning: ${w}`);
     return lines;
   }
 
@@ -90,7 +109,7 @@ export default async function (pi: ExtensionAPI) {
     }
     const l = launcher();
     if (!l.path) {
-      ctx.ui.notify(doctor().join("\n"), "error");
+      ctx.ui.notify((await doctor()).join("\n"), "error");
       return;
     }
     const c = config();
@@ -140,7 +159,7 @@ export default async function (pi: ExtensionAPI) {
         case undefined:
           return status(ctx);
         case "doctor":
-          return ctx.ui.notify(doctor().join("\n"), "info");
+          return ctx.ui.notify((await doctor()).join("\n"), "info");
         case "start":
           return startCmd(rest[0], ctx);
         case "stop":
