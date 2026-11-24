@@ -128,9 +128,14 @@ package still never installs Splash itself.
   ranges in jumps (268 -> 604 MB on disk while the network showed ~390 MB),
   so the amount can sit still for a minute; speed and ETA come from network
   bytes alone and move every second.
+- `/splash start` returns at once: Pi gives a command no abort signal
+  (`ctx.signal` is undefined outside streaming) and runs nothing else until
+  it returns, so a start that waited for a download blocked Pi for its whole
+  length. A background follower (one per port) plans the download, shows
+  progress with `ctx.ui.setStatus`, registers and switches on ready; it stops
+  on `/splash stop` and `session_shutdown`.
 - `/splash start` while a server is already starting (record alive, not
-  ready) follows it instead of spawning a second one; Escape stops waiting
-  only, the server keeps going.
+  ready) follows it instead of spawning a second one.
 - Ownership: the package writes `~/.pi/agent/splash/owned-P.json` with the pid
   it started. It never stops a server it did not start without a confirm. The
   server outlives Pi by default (load is 45-130 s, several Pi sessions share

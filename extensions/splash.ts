@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { detectMac, macosWarning, runtimeFor } from "../src/mac.ts";
 import { DRAFT_GB, loadEntries, recommend, diskWarnings, isDownloaded } from "../src/recommend.ts";
-import { bytes, bytesOnDisk, downloadLines, gb, planDownload, type RepoPlan } from "../src/download.ts";
+import { bytes, bytesOnDisk, downloadLines, gb, planDownload } from "../src/download.ts";
 import { downloadProgress } from "../src/netbytes.ts";
 import { providerConfig, providerName } from "../src/provider.ts";
 import {
@@ -108,18 +108,16 @@ export default async function (pi: ExtensionAPI) {
       ctx.ui.notify(`Splash already serves on port ${p}; using it.`, "info");
       return;
     }
+    if (following) {
+      ctx.ui.notify(`Already following the start on port ${p}: ${describe(readRecord(p))}.`, "info");
+      return;
+    }
     const running = readRecord(p);
     const phase = describe(running);
     if (running && phase !== "not running" && !phase.startsWith("failed")) {
-      const model = (() => {
-        try {
-          return JSON.parse(readFileSync(join(STATE_DIR, `owned-${p}.json`), "utf8")).model as string;
-        } catch {
-          return undefined;
-        }
-      })();
-      ctx.ui.notify(`Splash is already starting on port ${p} (${phase}); waiting for it.`, "info");
-      return follow(p, running.pid, model, ctx);
+      ctx.ui.notify(`Splash is already starting on port ${p} (${phase}); following it in the status bar.`, "info");
+      follow(p, running.pid, ownedModel(p), ctx);
+      return;
     }
     const l = launcher();
     if (!l.path) {
@@ -134,33 +132,55 @@ export default async function (pi: ExtensionAPI) {
       return;
     }
     const flags = c.flags ?? (chosen === pick?.model ? pick.flags : []);
-    const draft = loadEntries().find((e) => e.model === chosen)?.draft;
-    const plan = await planDownload(chosen, draft, flags.includes("--language-only")).catch(() => null);
-    const missing = plan ? bytes(plan.flatMap((r) => r.missing)) : null;
     const pid = start({ launcher: l.path, model: chosen, flags, port: p, keepAwake: c.keepAwake ?? true, stopWithPid: c.stopOnExit ? process.pid : undefined });
-    ctx.ui.notify(`Starting ${chosen} ${flags.join(" ")}${missing ? `, ${gb(missing)} to download` : ""}. Log: ${logPath(p)}`, "info");
-    return follow(p, pid, chosen, ctx, plan, missing);
+    ctx.ui.notify(`Starting ${[chosen, ...flags].join(" ")}. Progress in the status bar; Pi stays usable. Log: ${logPath(p)}`, "info");
+    follow(p, pid, chosen, ctx, flags);
   }
 
-  async function follow(p: number, pid: number, model: string | undefined, ctx: any, plan?: RepoPlan[] | null, missing?: number | null) {
-    if (plan === undefined && model) {
-      const draft = loadEntries().find((e) => e.model === model)?.draft;
-      const flags = config().flags ?? recommend(detectMac()).pick?.flags ?? [];
-      plan = await planDownload(model, draft, flags.includes("--language-only")).catch(() => null);
-      missing = plan ? bytes(plan.flatMap((r) => r.missing)) : null;
+  function ownedModel(p: number): string | undefined {
+    try {
+      return JSON.parse(readFileSync(join(STATE_DIR, `owned-${p}.json`), "utf8")).model;
+    } catch {
+      return undefined;
     }
-    const progress = missing === 0 ? null : downloadProgress(pid, missing ?? null, plan ? () => bytesOnDisk(plan!) : undefined);
-    const record = await waitReady(p, ctx.signal ?? new AbortController().signal, (t) => ctx.ui.setStatus("splash", `splash: ${t}`), progress?.text);
-    progress?.stop();
-    ctx.ui.setStatus("splash", undefined);
-    if (ctx.signal?.aborted) {
-      ctx.ui.notify(`Stopped waiting; Splash keeps starting in the background. /splash shows its phase, /splash start follows it again.`, "info");
-    } else if (record?.phase === "ready") {
-      const served = await register(ctx, true);
-      ctx.ui.notify(`Splash ready: ${served?.id}, ${served?.context.toLocaleString()} context tokens`, "info");
-    } else {
-      ctx.ui.notify(`Splash did not start: ${describe(record)}. Log: ${logPath(p)}`, "error");
+  }
+
+  let following: AbortController | null = null;
+
+  async function follow(p: number, pid: number, model: string | undefined, ctx: any, flags?: string[]) {
+    const abort = (following = new AbortController());
+    let progress: ReturnType<typeof downloadProgress> | null = null;
+    try {
+      if (model) {
+        const draft = loadEntries().find((e) => e.model === model)?.draft;
+        const f = flags ?? config().flags ?? recommend(detectMac()).pick?.flags ?? [];
+        const plan = await planDownload(model, draft, f.includes("--language-only")).catch(() => null);
+        const missing = plan ? bytes(plan.flatMap((r) => r.missing)) : null;
+        if (abort.signal.aborted) return;
+        if (missing) ctx.ui.notify(`${gb(missing)} to download.`, "info");
+        if (missing !== 0) progress = downloadProgress(pid, missing, plan ? () => bytesOnDisk(plan) : undefined);
+      } else {
+        progress = downloadProgress(pid, null);
+      }
+      const record = await waitReady(p, abort.signal, (t) => ctx.ui.setStatus("splash", `splash: ${t}`), progress?.text);
+      if (abort.signal.aborted) return;
+      ctx.ui.setStatus("splash", undefined);
+      if (record?.phase === "ready") {
+        const served = await register(ctx, true);
+        ctx.ui.notify(`Splash ready: ${served?.id}, ${served?.context.toLocaleString()} context tokens`, "info");
+      } else {
+        ctx.ui.notify(`Splash did not start: ${describe(record)}. Log: ${logPath(p)}`, "error");
+      }
+    } finally {
+      progress?.stop();
+      if (following === abort) following = null;
     }
+  }
+
+  function unfollow(ctx?: any) {
+    following?.abort();
+    following = null;
+    ctx?.ui.setStatus("splash", undefined);
   }
 
   async function stopCmd(ctx: any) {
@@ -171,12 +191,15 @@ export default async function (pi: ExtensionAPI) {
       return;
     }
     if (!startedByUs(p, record) && !(await ctx.ui.confirm("Stop Splash?", `The server on port ${p} was not started by pi-splash.`))) return;
+    unfollow(ctx);
     ctx.ui.notify((await stop(p, record)) ? "Splash stopped." : "Splash did not stop within 60 s.", "info");
   }
 
   pi.on("session_start", async (_event, ctx) => {
     await register(ctx, false);
   });
+
+  pi.on("session_shutdown", async () => unfollow());
 
   pi.registerCommand("splash", {
     description: "Local Splash server: status, doctor, start [model], stop, use, log",
