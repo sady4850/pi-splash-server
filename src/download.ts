@@ -1,4 +1,4 @@
-import { statSync } from "node:fs";
+import { readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -75,4 +75,28 @@ export function downloadLines(plan: RepoPlan[]): string[] {
     `Download: ${gb(bytes(missing))} of ${gb(bytes(plan.flatMap((r) => r.files)))}`,
     ...plan.map((r) => `  ${r.repo}: ${r.missing.length ? `${r.missing.length} of ${r.files.length} files, ${gb(bytes(r.missing))}` : "complete"}`),
   ];
+}
+
+export function bytesOnDisk(plan: RepoPlan[], hub = HUB): number {
+  let total = 0;
+  for (const r of plan) {
+    const blobs = join(hub, `models--${r.repo.replace("/", "--")}`, "blobs");
+    let names: string[] = [];
+    try {
+      names = readdirSync(blobs);
+    } catch {
+      continue;
+    }
+    for (const f of r.missing) {
+      let held = 0;
+      for (const n of names) {
+        if (n !== f.blob && !n.startsWith(f.blob + ".")) continue;
+        try {
+          held = Math.max(held, statSync(join(blobs, n)).size);
+        } catch {}
+      }
+      total += Math.min(held, f.size);
+    }
+  }
+  return total;
 }

@@ -64,11 +64,11 @@ export function progressText(done: number, total: number | null, rate: number): 
   return `downloading ${(Math.min(done, total) / 1e9).toFixed(1)} / ${(total / 1e9).toFixed(1)} GB (${pct}%)${speed}${eta}`;
 }
 
-export function downloadProgress(root: number, total: number | null, windowS = 5) {
+export function downloadProgress(root: number, total: number | null, onDisk: () => number = () => 0, windowS = 5) {
   const samples: [number, number][] = [];
   let done = 0;
   const stop = watchBytesIn(root, (b) => {
-    done = b;
+    done = Math.max(b, onDisk());
     samples.push([Date.now(), b]);
     while (samples.length > 1 && Date.now() - samples[0][0] > windowS * 1000) samples.shift();
   });

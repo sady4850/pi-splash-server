@@ -134,6 +134,9 @@ test("download plan picks Splash's files", async () => {
   writeFileSync(join(blobs, "x"), "1234");
   writeFileSync(join(blobs, "y"), "12");
   assert.deepEqual(paths(missingFiles("o/r", files, hub)), ["b", "c"]);
+  const { bytesOnDisk } = await import("../src/download.ts");
+  writeFileSync(join(blobs, "z.5f3a.incomplete"), "123");
+  assert.equal(bytesOnDisk([{ repo: "o/r", files, missing: missingFiles("o/r", files, hub) }], hub), 2 + 3);
   truncateSync(join(blobs, "y"), 4);
   assert.deepEqual(paths(missingFiles("o/r", files, hub)), ["c"]);
 

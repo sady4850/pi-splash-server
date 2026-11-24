@@ -118,6 +118,11 @@ package still never installs Splash itself.
   blob stays at 0 bytes for minutes, then jumps (measured: 0 B on disk for
   40 s of a 270 MB download), and the log holds only tqdm's file count
   (`Fetching 1 files 0/1`), no byte bar, when stderr is a file.
+- Xet sends chunks compressed, so network bytes undercount the file: 224 MB
+  received for a 269 MB bf16 safetensors file (83%). Done is therefore
+  max(network bytes, bytes of the missing blobs on disk), as Splash's own
+  `_download_progress` does: low while a file assembles, exact once it lands;
+  capped at 99% until the record leaves `starting`.
 - Ownership: the package writes `~/.pi/agent/splash/owned-P.json` with the pid
   it started. It never stops a server it did not start without a confirm. The
   server outlives Pi by default (load is 45-130 s, several Pi sessions share
