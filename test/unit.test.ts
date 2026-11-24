@@ -153,7 +153,9 @@ test("runtime version", async () => {
 });
 
 test("network bytes of the server's process tree", async () => {
-  const { descendants, parseSample, progressText } = await import("../src/netbytes.ts");
+  const { descendants, parseSample, progressText, samples } = await import("../src/netbytes.ts");
+  assert.deepEqual(samples(",bytes_in,\npython3.13.7,500,\n,bytes_in,\npython3.13.7,20,\n"), [["python3.13.7,500,"], ["python3.13.7,20,"]]);
+  assert.deepEqual(samples(""), []);
   assert.deepEqual([...descendants(10, [[11, 10], [12, 11], [13, 1], [14, 12]])].sort(), [10, 11, 12, 14]);
   assert.deepEqual(parseSample("python3.13.70483,35994215,"), { pid: 70483, bytes: 35994215 });
   assert.deepEqual(parseSample("Google Chrome H.123,0,"), { pid: 123, bytes: 0 });

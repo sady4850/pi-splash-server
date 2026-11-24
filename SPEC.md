@@ -112,8 +112,10 @@ package still never installs Splash itself.
   shows `downloading 6.8 / 17.5 GB (38%), 12.0 MB/s, ~15 min left` (total =
   the doctor plan's missing bytes; no total when the Hub is unreachable), or
   the log's last line before any bytes arrive.
-- Download bytes come from `nettop -P -d` (per-process inbound deltas, no
-  root), summed over the server's process tree (the download runs in a
+- Download bytes come from `nettop -P -d -L 2 -s 1`, run once per tick
+  (streaming `-L 0` block-buffers into a pipe: nothing for 12+ s), first
+  sample absolute as the baseline, then 1 s deltas, summed over the server's
+  process tree (the download runs in a
   grandchild, `install/models.py prepare`). Not from the HF cache: under Xet a
   blob stays at 0 bytes for minutes, then jumps (measured: 0 B on disk for
   40 s of a 270 MB download), and the log holds only tqdm's file count
@@ -122,7 +124,13 @@ package still never installs Splash itself.
   received for a 269 MB bf16 safetensors file (83%). Done is therefore
   max(network bytes, bytes of the missing blobs on disk), as Splash's own
   `_download_progress` does: low while a file assembles, exact once it lands;
-  capped at 99% until the record leaves `starting`.
+  capped at 99% until the record leaves `starting`. Xet writes assembled
+  ranges in jumps (268 -> 604 MB on disk while the network showed ~390 MB),
+  so the amount can sit still for a minute; speed and ETA come from network
+  bytes alone and move every second.
+- `/splash start` while a server is already starting (record alive, not
+  ready) follows it instead of spawning a second one; Escape stops waiting
+  only, the server keeps going.
 - Ownership: the package writes `~/.pi/agent/splash/owned-P.json` with the pid
   it started. It never stops a server it did not start without a confirm. The
   server outlives Pi by default (load is 45-130 s, several Pi sessions share

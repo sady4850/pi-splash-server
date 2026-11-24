@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { detectMac, macosWarning, runtimeFor } from "../src/mac.ts";
 import { DRAFT_GB, loadEntries, recommend, diskWarnings, isDownloaded } from "../src/recommend.ts";
-import { bytes, bytesOnDisk, downloadLines, gb, planDownload } from "../src/download.ts";
+import { bytes, bytesOnDisk, downloadLines, gb, planDownload, type RepoPlan } from "../src/download.ts";
 import { downloadProgress } from "../src/netbytes.ts";
 import { providerConfig, providerName } from "../src/provider.ts";
 import {
@@ -108,6 +108,19 @@ export default async function (pi: ExtensionAPI) {
       ctx.ui.notify(`Splash already serves on port ${p}; using it.`, "info");
       return;
     }
+    const running = readRecord(p);
+    const phase = describe(running);
+    if (running && phase !== "not running" && !phase.startsWith("failed")) {
+      const model = (() => {
+        try {
+          return JSON.parse(readFileSync(join(STATE_DIR, `owned-${p}.json`), "utf8")).model as string;
+        } catch {
+          return undefined;
+        }
+      })();
+      ctx.ui.notify(`Splash is already starting on port ${p} (${phase}); waiting for it.`, "info");
+      return follow(p, running.pid, model, ctx);
+    }
     const l = launcher();
     if (!l.path) {
       ctx.ui.notify((await doctor()).join("\n"), "error");
@@ -126,11 +139,23 @@ export default async function (pi: ExtensionAPI) {
     const missing = plan ? bytes(plan.flatMap((r) => r.missing)) : null;
     const pid = start({ launcher: l.path, model: chosen, flags, port: p, keepAwake: c.keepAwake ?? true, stopWithPid: c.stopOnExit ? process.pid : undefined });
     ctx.ui.notify(`Starting ${chosen} ${flags.join(" ")}${missing ? `, ${gb(missing)} to download` : ""}. Log: ${logPath(p)}`, "info");
-    const progress = missing === 0 ? null : downloadProgress(pid, missing, plan ? () => bytesOnDisk(plan) : undefined);
+    return follow(p, pid, chosen, ctx, plan, missing);
+  }
+
+  async function follow(p: number, pid: number, model: string | undefined, ctx: any, plan?: RepoPlan[] | null, missing?: number | null) {
+    if (plan === undefined && model) {
+      const draft = loadEntries().find((e) => e.model === model)?.draft;
+      const flags = config().flags ?? recommend(detectMac()).pick?.flags ?? [];
+      plan = await planDownload(model, draft, flags.includes("--language-only")).catch(() => null);
+      missing = plan ? bytes(plan.flatMap((r) => r.missing)) : null;
+    }
+    const progress = missing === 0 ? null : downloadProgress(pid, missing ?? null, plan ? () => bytesOnDisk(plan!) : undefined);
     const record = await waitReady(p, ctx.signal ?? new AbortController().signal, (t) => ctx.ui.setStatus("splash", `splash: ${t}`), progress?.text);
     progress?.stop();
     ctx.ui.setStatus("splash", undefined);
-    if (record?.phase === "ready") {
+    if (ctx.signal?.aborted) {
+      ctx.ui.notify(`Stopped waiting; Splash keeps starting in the background. /splash shows its phase, /splash start follows it again.`, "info");
+    } else if (record?.phase === "ready") {
       const served = await register(ctx, true);
       ctx.ui.notify(`Splash ready: ${served?.id}, ${served?.context.toLocaleString()} context tokens`, "info");
     } else {
