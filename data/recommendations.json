@@ -1,0 +1,51 @@
+{
+  "updated": "2026-11-24",
+  "source": "https://github.com/paperniuk/splash/blob/m1/docs/quants.md",
+  "entries": [
+    {
+      "minMemoryGB": 64,
+      "runtimes": ["splash-m1", "splash"],
+      "model": "unsloth/Qwen3.8-27B-GGUF:UD-Q5_K_S",
+      "flags": [],
+      "weightsGB": 18.67,
+      "evidence": "closeness measured on M1 Pro; speed on M1 Pro and M2 Max",
+      "note": "Closest to bf16 of the measured files, about 20% slower decode than MLX 4-bit on M1 Pro."
+    },
+    {
+      "minMemoryGB": 36,
+      "runtimes": ["splash-m1", "splash"],
+      "model": "unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_M",
+      "flags": [],
+      "weightsGB": 16.46,
+      "evidence": "closeness measured on M1 Pro; speed on M1 Pro and M2 Max",
+      "note": "Closest of the 4-bit files, 1.3 GB more than MLX 4-bit."
+    },
+    {
+      "minMemoryGB": 32,
+      "runtimes": ["splash-m1", "splash"],
+      "model": "mlx-community/Qwen3.8-27B-GPTQ-4bit",
+      "flags": ["--language-only", "--max-context", "64K", "--max-memory", "21G"],
+      "weightsGB": 15.13,
+      "evidence": "measured on M1 Pro 32 GB (1.7.1-m1), Pi tasks 4/4",
+      "note": "MLX 4-bit layout and speed, GPTQ rounding: KL to bf16 29% lower on wiki, 47% on chat."
+    },
+    {
+      "minMemoryGB": 24,
+      "runtimes": ["splash-m1", "splash"],
+      "model": "ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF:IQ3_S",
+      "flags": ["--language-only"],
+      "weightsGB": 11.77,
+      "evidence": "closeness measured; fit on a 24 GB Mac not verified",
+      "note": "About as close to bf16 as MLX 4-bit, 3.4 GB smaller, slower."
+    },
+    {
+      "minMemoryGB": 16,
+      "runtimes": ["splash-m1"],
+      "model": "prism-ml/Ternary-Bonsai-2-27B-gguf:PQ2_0",
+      "flags": ["--language-only"],
+      "weightsGB": 7,
+      "evidence": "splash-m1 README, run with memory capped to 11 GB",
+      "note": "Needs: sudo sysctl iogpu.wired_limit_mb=12288 (resets at reboot)."
+    }
+  ]
+}

@@ -1,0 +1,41 @@
+import { execFileSync } from "node:child_process";
+import { statfsSync } from "node:fs";
+import { homedir, totalmem } from "node:os";
+
+export type Mac = {
+  chip: string;
+  family: number | null;
+  memoryGB: number;
+  freeDiskGB: number;
+  macos: string;
+};
+
+export function parseFamily(chip: string): number | null {
+  const m = /Apple M(\d+)/.exec(chip);
+  return m ? Number(m[1]) : null;
+}
+
+export function runtimeFor(family: number | null): "splash-m1" | "splash" | null {
+  if (family === null) return null;
+  return family <= 2 ? "splash-m1" : "splash";
+}
+
+function run(cmd: string, args: string[]): string {
+  try {
+    return execFileSync(cmd, args, { encoding: "utf8", timeout: 5000 }).trim();
+  } catch {
+    return "";
+  }
+}
+
+export function detectMac(): Mac {
+  const chip = run("sysctl", ["-n", "machdep.cpu.brand_string"]) || "unknown";
+  const fs = statfsSync(homedir());
+  return {
+    chip,
+    family: parseFamily(chip),
+    memoryGB: Math.round(totalmem() / 2 ** 30),
+    freeDiskGB: (fs.bavail * fs.bsize) / 1e9,
+    macos: run("sw_vers", ["-productVersion"]),
+  };
+}

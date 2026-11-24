@@ -1,0 +1,1 @@
+{"object":"list","data":[{"id":"mlx-community/Qwen3.8-27B-GPTQ-4bit","object":"model","created":0,"owned_by":"splash","max_model_len":65536,"context_length":65536,"vision":false,"input_modalities":["text"],"reasoning":true}]}
