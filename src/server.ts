@@ -171,13 +171,13 @@ function logTail(port: number, bytes = 4096): string {
   }
 }
 
-export async function waitReady(port: number, signal: AbortSignal, onPhase: (text: string) => void): Promise<Record | null> {
+export async function waitReady(port: number, signal: AbortSignal, onPhase: (text: string) => void, starting?: () => string | null): Promise<Record | null> {
   let last = "";
   const t0 = Date.now();
   while (!signal.aborted) {
     const record = readRecord(port);
     const phase = describe(record);
-    const text = phase === "starting" || phase === "not running" ? `starting: ${lastLine(logTail(port))}` : phase;
+    const text = phase === "starting" || phase === "not running" ? (starting?.() ?? ["starting", lastLine(logTail(port))].filter(Boolean).join(": ")) : phase;
     if (text !== last) {
       onPhase(text);
       last = text;

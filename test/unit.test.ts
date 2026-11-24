@@ -148,3 +148,14 @@ test("runtime version", async () => {
   assert.equal(versionOf("Splash 1.7.2\n"), "1.7.2");
   assert.equal(versionOf(""), null);
 });
+
+test("network bytes of the server's process tree", async () => {
+  const { descendants, parseSample, progressText } = await import("../src/netbytes.ts");
+  assert.deepEqual([...descendants(10, [[11, 10], [12, 11], [13, 1], [14, 12]])].sort(), [10, 11, 12, 14]);
+  assert.deepEqual(parseSample("python3.13.70483,35994215,"), { pid: 70483, bytes: 35994215 });
+  assert.deepEqual(parseSample("Google Chrome H.123,0,"), { pid: 123, bytes: 0 });
+  assert.equal(parseSample(",bytes_in,"), null);
+  assert.equal(progressText(6.8e9, 17.5e9, 12e6), "downloading 6.8 / 17.5 GB (38%), 12.0 MB/s, ~15 min left");
+  assert.equal(progressText(18e9, 17.5e9, 1e6), "downloading 17.5 / 17.5 GB (99%), 1.0 MB/s");
+  assert.equal(progressText(2.5e9, null, 0), "downloading 2.5 GB");
+});

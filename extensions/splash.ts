@@ -2,8 +2,9 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { detectMac, macosWarning, runtimeFor } from "../src/mac.ts";
-import { DRAFT_GB, recommend, diskWarnings, isDownloaded } from "../src/recommend.ts";
-import { bytes, downloadLines, planDownload } from "../src/download.ts";
+import { DRAFT_GB, loadEntries, recommend, diskWarnings, isDownloaded } from "../src/recommend.ts";
+import { bytes, downloadLines, gb, planDownload } from "../src/download.ts";
+import { downloadProgress } from "../src/netbytes.ts";
 import { providerConfig, providerName } from "../src/provider.ts";
 import {
   DEFAULT_PORT, STATE_DIR, describe, findLauncher, latestRelease, launcherVersion, logPath, probe, readRecord,
@@ -120,9 +121,14 @@ export default async function (pi: ExtensionAPI) {
       return;
     }
     const flags = c.flags ?? (chosen === pick?.model ? pick.flags : []);
-    start({ launcher: l.path, model: chosen, flags, port: p, keepAwake: c.keepAwake ?? true, stopWithPid: c.stopOnExit ? process.pid : undefined });
-    ctx.ui.notify(`Starting ${chosen} ${flags.join(" ")}. Log: ${logPath(p)}`, "info");
-    const record = await waitReady(p, ctx.signal ?? new AbortController().signal, (t) => ctx.ui.setStatus("splash", `splash: ${t}`));
+    const draft = loadEntries().find((e) => e.model === chosen)?.draft;
+    const plan = await planDownload(chosen, draft, flags.includes("--language-only")).catch(() => null);
+    const missing = plan ? bytes(plan.flatMap((r) => r.missing)) : null;
+    const pid = start({ launcher: l.path, model: chosen, flags, port: p, keepAwake: c.keepAwake ?? true, stopWithPid: c.stopOnExit ? process.pid : undefined });
+    ctx.ui.notify(`Starting ${chosen} ${flags.join(" ")}${missing ? `, ${gb(missing)} to download` : ""}. Log: ${logPath(p)}`, "info");
+    const progress = missing === 0 ? null : downloadProgress(pid, missing);
+    const record = await waitReady(p, ctx.signal ?? new AbortController().signal, (t) => ctx.ui.setStatus("splash", `splash: ${t}`), progress?.text);
+    progress?.stop();
     ctx.ui.setStatus("splash", undefined);
     if (record?.phase === "ready") {
       const served = await register(ctx, true);

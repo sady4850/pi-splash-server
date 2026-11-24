@@ -108,8 +108,16 @@ package still never installs Splash itself.
   `ready`, `recovering`, `failed {failure}`) every second, show it with
   `ctx.ui.setStatus`, until `ready`, `failed` or process exit. First start on
   M1 Pro takes ~130 s (90 s ANE calibration), later ~45 s; model download
-  first can take tens of minutes. While the record says `starting` (download,
-  Hub check) the status shows the log's last line.
+  first can take tens of minutes. While the record says `starting`, the status
+  shows `downloading 6.8 / 17.5 GB (38%), 12.0 MB/s, ~15 min left` (total =
+  the doctor plan's missing bytes; no total when the Hub is unreachable), or
+  the log's last line before any bytes arrive.
+- Download bytes come from `nettop -P -d` (per-process inbound deltas, no
+  root), summed over the server's process tree (the download runs in a
+  grandchild, `install/models.py prepare`). Not from the HF cache: under Xet a
+  blob stays at 0 bytes for minutes, then jumps (measured: 0 B on disk for
+  40 s of a 270 MB download), and the log holds only tqdm's file count
+  (`Fetching 1 files 0/1`), no byte bar, when stderr is a file.
 - Ownership: the package writes `~/.pi/agent/splash/owned-P.json` with the pid
   it started. It never stops a server it did not start without a confirm. The
   server outlives Pi by default (load is 45-130 s, several Pi sessions share
