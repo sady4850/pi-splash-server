@@ -76,7 +76,7 @@ Numbers are refreshed when docs/quants.md is (1.7.1-m1 re-run in progress).
   `brew install incoai/tap/splash`).
 - Start: `caffeinate -i <launcher> serve --model M <flags> --port P`, detached
   (own process group, `unref`), stdout/stderr to
-  `~/.pi/agent/splash/serve-P.log`. `caffeinate -i` keeps the Mac from idle
+  `~/.pi/agent/splash/serve-P.log`, rewritten on each start. `caffeinate -i` keeps the Mac from idle
   sleep while it serves (measured need: overnight runs). Never from the
   extension factory, only from a command (Pi rule for long-lived resources).
 - Progress: poll `~/Library/Application Support/Splash/runtime/serve-P.json`
@@ -84,7 +84,8 @@ Numbers are refreshed when docs/quants.md is (1.7.1-m1 re-run in progress).
   `ready`, `recovering`, `failed {failure}`) every second, show it with
   `ctx.ui.setStatus`, until `ready`, `failed` or process exit. First start on
   M1 Pro takes ~130 s (90 s ANE calibration), later ~45 s; model download
-  first can take tens of minutes, shown from the log.
+  first can take tens of minutes. While the record says `starting` (download,
+  Hub check) the status shows the log's last line.
 - Ownership: the package writes `~/.pi/agent/splash/owned-P.json` with the pid
   it started. It never stops a server it did not start without a confirm. The
   server outlives Pi by default (load is 45-130 s, several Pi sessions share
@@ -106,7 +107,12 @@ with `splash-m1 pi` and one started here are interchangeable:
   `chat_template.later_system` is `native` or `patched` (otherwise Pi folds
   later system messages into the first and the whole prompt is re-read).
 
-Registered at `session_start` when a server answers, and again after
+1.7.1 lists `reasoning: {thinks, efforts: [low, medium, xhigh], default}` in
+`/v1/models`; the server accepts every Pi level (none ... max, checked live),
+so the map stays `{off: "none"}` as `clients.py` writes it.
+
+Registered when the extension loads (async factory, so `--model splash/...`
+and `--list-models` see it) and at `session_start` when a server answers, and again after
 `/splash start`. Session switch with `pi.setModel`.
 
 ## Settings

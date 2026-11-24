@@ -1,0 +1,11 @@
+{
+  "schema_version": 8,
+  "ready": true,
+  "maximum_context_tokens": 65536,
+  "input_modalities": [
+    "text"
+  ],
+  "chat_template": {
+    "later_system": "patched"
+  }
+}

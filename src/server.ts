@@ -1,5 +1,5 @@
 import { spawn, execFileSync } from "node:child_process";
-import { mkdirSync, openSync, readFileSync, writeFileSync, rmSync, existsSync } from "node:fs";
+import { closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -99,7 +99,7 @@ export function logPath(port: number) {
 
 export function start(o: StartOptions): number {
   mkdirSync(STATE_DIR, { recursive: true });
-  const out = openSync(logPath(o.port), "a");
+  const out = openSync(logPath(o.port), "w");
   const args = [o.launcher, "serve", "--model", o.model, ...o.flags, "--port", String(o.port)];
   const [cmd, ...rest] = o.keepAwake ? ["/usr/bin/caffeinate", "-i", ...args] : args;
   const env = { ...process.env, ...(o.stopWithPid ? { SPLASH_APP_PID: String(o.stopWithPid) } : {}) };
@@ -135,12 +135,34 @@ export function startedByUs(port: number, record: Record | null, parent = parent
   return false;
 }
 
+export function lastLine(log: string, width = 80): string {
+  const line = log.split(/[\r\n]/).map((l) => l.trim()).filter(Boolean).pop() ?? "";
+  return line.length > width ? line.slice(0, width - 1) + "…" : line;
+}
+
+function logTail(port: number, bytes = 4096): string {
+  try {
+    const fd = openSync(logPath(port), "r");
+    try {
+      const size = fstatSync(fd).size;
+      const buf = Buffer.alloc(Math.min(bytes, size));
+      readSync(fd, buf, 0, buf.length, size - buf.length);
+      return buf.toString("utf8");
+    } finally {
+      closeSync(fd);
+    }
+  } catch {
+    return "";
+  }
+}
+
 export async function waitReady(port: number, signal: AbortSignal, onPhase: (text: string) => void): Promise<Record | null> {
   let last = "";
   const t0 = Date.now();
   while (!signal.aborted) {
     const record = readRecord(port);
-    const text = describe(record);
+    const phase = describe(record);
+    const text = phase === "starting" || phase === "not running" ? `starting: ${lastLine(logTail(port))}` : phase;
     if (text !== last) {
       onPhase(text);
       last = text;

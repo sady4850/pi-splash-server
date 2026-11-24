@@ -20,6 +20,12 @@ export function runtimeFor(family: number | null): "splash-m1" | "splash" | null
   return family <= 2 ? "splash-m1" : "splash";
 }
 
+export function macosWarning(runtime: string | null, version: string): string | null {
+  if (runtime !== "splash-m1" || !version) return null;
+  const [major, minor = 0] = version.split(".").map(Number);
+  return major > 26 || (major === 26 && minor >= 4) ? null : `splash-m1 needs macOS 26.4 or newer; this Mac runs ${version}.`;
+}
+
 function run(cmd: string, args: string[]): string {
   try {
     return execFileSync(cmd, args, { encoding: "utf8", timeout: 5000 }).trim();

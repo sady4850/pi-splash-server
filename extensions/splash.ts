@@ -1,7 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { detectMac, runtimeFor } from "../src/mac.ts";
+import { detectMac, macosWarning, runtimeFor } from "../src/mac.ts";
 import { recommend, diskWarnings, isDownloaded } from "../src/recommend.ts";
 import { providerConfig, providerName } from "../src/provider.ts";
 import {
@@ -63,7 +63,8 @@ export default async function (pi: ExtensionAPI) {
       lines.push(isDownloaded(pick.model) ? "  Already downloaded." : `  Download: ${pick.weightsGB} GB + draft.`);
       if (smaller) lines.push(`Smaller: ${smaller.model} (${smaller.weightsGB} GB)`);
     }
-    for (const w of diskWarnings(mac, pick, pick ? isDownloaded(pick.model) : false)) lines.push(`Warning: ${w}`);
+    const macos = macosWarning(runtime, mac.macos);
+    for (const w of [...(macos ? [macos] : []), ...diskWarnings(mac, pick, pick ? isDownloaded(pick.model) : false)]) lines.push(`Warning: ${w}`);
     return lines;
   }
 
@@ -73,6 +74,10 @@ export default async function (pi: ExtensionAPI) {
     const served = await probe(p);
     const lines = [`Port ${p}: ${describe(record)}${record && startedByUs(p, record) ? " (started by pi-splash)" : ""}`];
     if (served) lines.push(`Model ${served.id}, ${served.context.toLocaleString()} context tokens`);
+    const phase = describe(record);
+    if (served && ctx.model?.provider !== providerName(p)) lines.push("Switch to it: /splash use");
+    else if (!served && (phase === "not running" || phase.startsWith("failed"))) lines.push("Start one: /splash start");
+    else if (served && record && startedByUs(p, record)) lines.push("Stop it: /splash stop");
     ctx.ui.notify(lines.join("\n"), "info");
   }
 

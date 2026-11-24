@@ -1,9 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { parseFamily, runtimeFor } from "../src/mac.ts";
+import { macosWarning, parseFamily, runtimeFor } from "../src/mac.ts";
 import { recommend, diskWarnings } from "../src/recommend.ts";
-import { parseModels, parseLaterSystem, startedByUs, describe } from "../src/server.ts";
+import { parseModels, parseLaterSystem, startedByUs, describe, lastLine } from "../src/server.ts";
 import { providerConfig, providerName } from "../src/provider.ts";
 
 test("chip family and runtime", () => {
@@ -44,6 +44,33 @@ test("later system", () => {
   assert.equal(parseLaterSystem({ chat_template: { later_system: { a: "patched", b: "native" } } }), true);
   assert.equal(parseLaterSystem({ chat_template: { later_system: { a: "patched", b: "folded" } } }), false);
   assert.equal(parseLaterSystem(null), false);
+});
+
+const fixture = (name: string) => JSON.parse(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf8"));
+
+test("provider from live 1.7.1-m1 fixtures", () => {
+  const served = { ...parseModels(fixture("models.json"))!, laterSystem: parseLaterSystem(fixture("status.json")) };
+  const m = providerConfig(8000, served, {}).models[0] as any;
+  assert.equal(m.id, "mlx-community/Qwen3.8-27B-GPTQ-4bit");
+  assert.equal(m.contextWindow, 65536);
+  assert.deepEqual(m.input, ["text"]);
+  assert.equal(m.reasoning, true);
+  assert.deepEqual(m.compat, { supportsMidConvoSystemMessages: true });
+});
+
+test("macOS version", () => {
+  assert.equal(macosWarning("splash-m1", "27.2.1"), null);
+  assert.equal(macosWarning("splash-m1", "26.4"), null);
+  assert.match(macosWarning("splash-m1", "26.3.1")!, /26\.4/);
+  assert.match(macosWarning("splash-m1", "15.6")!, /15\.6/);
+  assert.equal(macosWarning("splash", "15.6"), null);
+  assert.equal(macosWarning("splash-m1", ""), null);
+});
+
+test("log line for download progress", () => {
+  assert.equal(lastLine("a\nFetching 4 files:  25%|##  | 1/4\rFetching 4 files:  50%|#### | 2/4\r\n"), "Fetching 4 files:  50%|#### | 2/4");
+  assert.equal(lastLine(""), "");
+  assert.equal(lastLine("x".repeat(100), 10), "xxxxxxxxx…");
 });
 
 test("provider matches splash-m1 pi", () => {
