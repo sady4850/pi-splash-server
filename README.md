@@ -13,8 +13,8 @@ switches the session to it when it is ready.
 ## Requirements
 
 - Apple silicon Mac. M1/M2 need macOS 26.4 or newer (splash-m1).
-- The Splash runtime, installed once. `/splash doctor` prints the line for
-  your chip:
+- The Splash runtime. `/splash install` puts the install command for your
+  chip into Pi's editor as a `!!` shell line; you see it and press Enter:
   - M1/M2: `curl -fsSL https://github.com/paperniuk/splash/releases/latest/download/install-m1.sh | sh`
   - M3 and newer: `brew install incoai/tap/splash`
 - Disk for the model: 11-23 GB depending on the tier (weights plus a 3.9 GB
@@ -41,6 +41,8 @@ In Pi:
 /splash use        switch to a Splash server started outside Pi
 /splash stop       stop the server
 /splash log        last lines of the server log
+/splash install    put the runtime's install command into the editor
+/splash update     same for a newer runtime release
 ```
 
 `start` and `use` switch the session to the Splash model; `/model` switches

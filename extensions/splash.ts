@@ -17,6 +17,7 @@ const INSTALL = {
   "splash-m1": "curl -fsSL https://github.com/paperniuk/splash/releases/latest/download/install-m1.sh | sh",
   splash: "brew install incoai/tap/splash",
 };
+const UPDATE = { ...INSTALL, splash: "brew upgrade incoai/tap/splash" };
 
 function config(): Config {
   try {
@@ -59,14 +60,13 @@ export default async function (pi: ExtensionAPI) {
       l.path ? latestRelease(l.name) : Promise.resolve(null),
       pick ? planDownload(pick.model, pick.draft, pick.flags.includes("--language-only")).catch((e: Error) => e) : Promise.resolve(null),
     ]);
-    const update = l.name === "splash" ? "brew upgrade incoai/tap/splash" : INSTALL[l.name as keyof typeof INSTALL];
     const lines = [
       `${mac.chip}, ${mac.memoryGB} GB, macOS ${mac.macos}, ${mac.freeDiskGB.toFixed(1)} GB free`,
       !l.path
-        ? `Runtime: ${runtime ?? "none"} not installed. Install: ${INSTALL[(runtime ?? "splash") as keyof typeof INSTALL]}`
+        ? `Runtime: ${runtime ?? "none"} not installed. Install: /splash install`
         : `Runtime: ${l.name} ${installed ?? "?"}${latest === installed ? ", latest" : ""} (${l.path})`,
     ];
-    if (l.path && latest && latest !== installed) lines.push(`  ${latest} is out. Update: ${update}`);
+    if (l.path && latest && latest !== installed) lines.push(`  ${latest} is out. Update: /splash update`);
     let downloadGB = 0;
     if (!pick) lines.push("No measured model fits this Mac yet.");
     else {
@@ -202,6 +202,33 @@ export default async function (pi: ExtensionAPI) {
     ctx.ui.notify(stopped ? `Splash stopped.${onIt}` : "Splash did not stop within 60 s.", "info");
   }
 
+  function offer(command: string, what: string, ctx: any) {
+    ctx.ui.setEditorText(`!!${command}`);
+    ctx.ui.notify(`${what}: the command is in the editor, press Enter to run it (or copy it to a terminal). Then /splash doctor.\n${command}`, "info");
+  }
+
+  async function installCmd(update: boolean, ctx: any) {
+    const runtime = runtimeFor(detectMac().family);
+    if (!runtime) {
+      ctx.ui.notify("Splash runs on Apple silicon only.", "error");
+      return;
+    }
+    const l = launcher();
+    if (!l.path) return offer(INSTALL[runtime], `Install ${runtime}`, ctx);
+    const installed = versionOf(launcherVersion(l.path));
+    if (!update) {
+      ctx.ui.notify(`${l.name} ${installed ?? "?"} is installed (${l.path}). Newer release: /splash update`, "info");
+      return;
+    }
+    const latest = await latestRelease(l.name);
+    if (latest && latest === installed) {
+      ctx.ui.notify(`${l.name} ${installed} is the latest release.`, "info");
+      return;
+    }
+    const running = await probe(port());
+    offer(UPDATE[l.name as keyof typeof UPDATE], `Update ${l.name} ${installed ?? "?"} to ${latest ?? "the latest release"}${running ? "; restart the server afterwards (/splash stop, /splash start)" : ""}`, ctx);
+  }
+
   pi.on("session_start", async (_event, ctx) => {
     await register(ctx, false);
   });
@@ -209,9 +236,9 @@ export default async function (pi: ExtensionAPI) {
   pi.on("session_shutdown", async () => unfollow());
 
   pi.registerCommand("splash", {
-    description: "Local Splash server: status, doctor, start [model], stop, use, log",
+    description: "Local Splash server: status, doctor, start [model], stop, use, log, install, update",
     getArgumentCompletions: (prefix: string) => {
-      const items = ["doctor", "start", "stop", "use", "log"].filter((s) => s.startsWith(prefix)).map((s) => ({ value: s, label: s }));
+      const items = ["doctor", "start", "stop", "use", "log", "install", "update"].filter((s) => s.startsWith(prefix)).map((s) => ({ value: s, label: s }));
       return items.length ? items : null;
     },
     handler: async (args: string, ctx: any) => {
@@ -236,6 +263,10 @@ export default async function (pi: ExtensionAPI) {
           } catch {}
           return ctx.ui.notify(text || "No log yet.", "info");
         }
+        case "install":
+          return installCmd(false, ctx);
+        case "update":
+          return installCmd(true, ctx);
         default:
           return ctx.ui.notify(`Unknown: /splash ${cmd}`, "error");
       }

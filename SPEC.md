@@ -27,8 +27,8 @@ splash screen for Pi (mavam/pi-splash), unrelated.
 
 - No own inference, no fork of Splash or Pi. The package drives the installed
   `splash-m1` or `splash` launcher.
-- No installing Splash itself in v1: the package tells the user the one-line
-  install for their chip and checks it is there.
+- No installing Splash itself: the package puts the one-line install for the
+  chip into the editor and the user runs it.
 - No change to Pi's prompts, tools or compaction.
 
 ## Commands
@@ -43,6 +43,8 @@ All under one command, `/splash`, with argument completion.
 | `/splash stop` | Stop the server. Asks first when the package did not start it. |
 | `/splash use` | Register the running server as the provider and switch the session to it (for a server started outside Pi). |
 | `/splash log` | Last lines of the server log the package wrote. |
+| `/splash install` | Puts the runtime's install command (`curl ... install-m1.sh \| sh` or `brew install incoai/tap/splash`) into the editor as a `!!` line (Pi runs it without sending output to the model). The user sees it and presses Enter; the package runs nothing itself. Says so when the runtime is already there. |
+| `/splash update` | Same with the update command, when `releases/latest` differs from `<launcher> --version`. Reminds to restart a running server. |
 
 ## Mac detection (`src/mac.ts`)
 
