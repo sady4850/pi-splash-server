@@ -43,7 +43,7 @@
         "21G"
       ],
       "weightsGB": 15.13,
-      "evidence": "measured on M1 Pro 32 GB (1.7.1-m1), Pi tasks 4/4",
+      "evidence": "measured on M1 Pro 32 GB (1.7.1-m1 and 1.7.3-m1), Pi tasks 4/4",
       "note": "MLX 4-bit layout and speed, GPTQ rounding: KL to bf16 29% lower on wiki, 47% on chat.",
       "draft": "incoai/Qwen3.8-27B-DFlash2"
     },

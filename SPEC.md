@@ -206,6 +206,7 @@ and `--list-models` see it) and at `session_start` when a server answers, and ag
   stop (owned and not owned), Pi print-mode tasks on a small repo: a cold first
   session, a new session on a warm server, a `-c` follow-up that edits a file,
   a new session after a server restart.
+  Passed 2026-11-25 on splash-m1 1.7.3-m1, installed from the git repo.
 
 ## Open questions
 
