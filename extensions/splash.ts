@@ -92,7 +92,7 @@ export default async function (pi: ExtensionAPI) {
     const p = port();
     const record = readRecord(p);
     const served = await probe(p);
-    const lines = [`Port ${p}: ${describe(record)}${record && startedByUs(p, record) ? " (started by pi-splash)" : ""}`];
+    const lines = [`Port ${p}: ${describe(record)}${record && startedByUs(p, record) ? " (started by pi-splash-server)" : ""}`];
     if (served) lines.push(`Model ${served.id}, ${served.context.toLocaleString()} context tokens`);
     const phase = describe(record);
     if (served && ctx.model?.provider !== providerName(p)) lines.push("Switch to it: /splash use");
@@ -171,6 +171,11 @@ export default async function (pi: ExtensionAPI) {
       } else {
         ctx.ui.notify(`Splash did not start: ${describe(record)}. Log: ${logPath(p)}`, "error");
       }
+    } catch (e: any) {
+      try {
+        ctx.ui.setStatus("splash", undefined);
+        ctx.ui.notify(`Lost track of the Splash start: ${e?.message ?? e}. Log: ${logPath(p)}`, "error");
+      } catch {}
     } finally {
       progress?.stop();
       if (following === abort) following = null;
@@ -190,7 +195,7 @@ export default async function (pi: ExtensionAPI) {
       ctx.ui.notify("No Splash server running.", "info");
       return;
     }
-    if (!startedByUs(p, record) && !(await ctx.ui.confirm("Stop Splash?", `The server on port ${p} was not started by pi-splash.`))) return;
+    if (!startedByUs(p, record) && !(await ctx.ui.confirm("Stop Splash?", `The server on port ${p} was not started by pi-splash-server.`))) return;
     unfollow(ctx);
     const stopped = await stop(p, record);
     const onIt = stopped && ctx.model?.provider === providerName(p) ? ` The session is still on ${ctx.model.provider}/${ctx.model.id}; switch with /model.` : "";

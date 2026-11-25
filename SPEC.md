@@ -5,7 +5,7 @@ from inside Pi and picks the model and flags for the Mac it runs on. On M1/M2 it
 uses the [splash-m1](https://github.com/paperniuk/splash) fork, on M3 and newer
 official Splash.
 
-Status: draft, 2026-11-24.
+Status: 0.1.0 in private testing, 2026-11-25.
 
 Name: `pi-splash-server` (decided 2026-11-25). `pi-splash` on npm is a startup
 splash screen for Pi (mavam/pi-splash), unrelated.
@@ -201,7 +201,9 @@ and `--list-models` see it) and at `session_start` when a server answers, and ag
 - Unit: chip parsing, tier pick, record parsing, provider definition against
   fixtures of `/v1/models` and `/status` saved from a real 1.7.1-m1 server.
 - Manual on M1 Pro 32 GB: doctor, start from cold, start while running, use,
-  stop (owned and not owned), Pi tasks from `pi_m1/run.sh`.
+  stop (owned and not owned), Pi print-mode tasks on a small repo: a cold first
+  session, a new session on a warm server, a `-c` follow-up that edits a file,
+  a new session after a server restart.
 
 ## Open questions
 

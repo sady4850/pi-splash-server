@@ -45,20 +45,24 @@ export function watchBytesIn(root: number, onTotal: (bytes: number) => void): ()
   let stopped = false;
   (async () => {
     while (!stopped) {
-      const tree = descendants(root);
-      const out = await new Promise<string>((resolve) =>
-        execFile("/usr/bin/nettop", ["-P", "-d", "-L", "2", "-s", "1", "-x", "-J", "bytes_in"], { timeout: 10000 }, (_e, stdout) => resolve(stdout ?? "")),
-      );
-      if (!out) await new Promise((r) => setTimeout(r, 1000));
-      const taken = samples(out);
-      for (const sample of first ? taken : taken.slice(-1)) {
-        for (const line of sample) {
-          const s = parseSample(line);
-          if (s && s.bytes > 0 && tree.has(s.pid)) total += s.bytes;
+      try {
+        const tree = descendants(root);
+        const out = await new Promise<string>((resolve) =>
+          execFile("/usr/bin/nettop", ["-P", "-d", "-L", "2", "-s", "1", "-x", "-J", "bytes_in"], { timeout: 10000 }, (_e, stdout) => resolve(stdout ?? "")),
+        );
+        if (!out) await new Promise((r) => setTimeout(r, 1000));
+        const taken = samples(out);
+        for (const sample of first ? taken : taken.slice(-1)) {
+          for (const line of sample) {
+            const s = parseSample(line);
+            if (s && s.bytes > 0 && tree.has(s.pid)) total += s.bytes;
+          }
         }
+        if (taken.length) first = false;
+        if (!stopped) onTotal(total);
+      } catch {
+        await new Promise((r) => setTimeout(r, 1000));
       }
-      if (taken.length) first = false;
-      if (!stopped) onTotal(total);
     }
   })();
   return () => {

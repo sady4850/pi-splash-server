@@ -1,14 +1,34 @@
 {
   "name": "pi-splash-server",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Run a local Splash server from Pi, with the model and flags picked for your Mac (M1/M2 via splash-m1)",
   "type": "module",
   "license": "MIT",
-  "keywords": ["pi-package", "splash", "apple-silicon", "local-llm", "mlx", "gguf"],
-  "os": ["darwin"],
-  "cpu": ["arm64"],
+  "keywords": [
+    "pi-package",
+    "omp",
+    "oh-my-pi",
+    "splash",
+    "apple-silicon",
+    "local-llm",
+    "mlx",
+    "gguf"
+  ],
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64"
+  ],
   "pi": {
-    "extensions": ["./extensions/splash.ts"]
+    "extensions": [
+      "./extensions/splash.ts"
+    ]
+  },
+  "omp": {
+    "extensions": [
+      "./extensions/splash.ts"
+    ]
   },
   "scripts": {
     "test": "node --test test/*.test.ts"
@@ -16,5 +36,16 @@
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*"
   },
-  "files": ["extensions", "src", "data", "README.md", "SPEC.md"]
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    }
+  },
+  "files": [
+    "extensions",
+    "src",
+    "data",
+    "README.md",
+    "LICENSE"
+  ]
 }
