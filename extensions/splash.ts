@@ -112,10 +112,9 @@ export default async function (pi: ExtensionAPI) {
       ctx.ui.notify(`Already following the start on port ${p}: ${describe(readRecord(p))}.`, "info");
       return;
     }
-    const running = readRecord(p);
-    const phase = describe(running);
-    if (running && phase !== "not running" && !phase.startsWith("failed")) {
-      ctx.ui.notify(`Splash is already starting on port ${p} (${phase}); following it in the status bar.`, "info");
+    const running = starting(p);
+    if (running) {
+      ctx.ui.notify(`Splash is already starting on port ${p} (${describe(running)}); following it in the status bar.`, "info");
       follow(p, running.pid, ownedModel(p), ctx);
       return;
     }
@@ -135,6 +134,12 @@ export default async function (pi: ExtensionAPI) {
     const pid = start({ launcher: l.path, model: chosen, flags, port: p, keepAwake: c.keepAwake ?? true, stopWithPid: c.stopOnExit ? process.pid : undefined });
     ctx.ui.notify(`Starting ${[chosen, ...flags].join(" ")}. Progress in the status bar; Pi stays usable. Log: ${logPath(p)}`, "info");
     follow(p, pid, chosen, ctx, flags);
+  }
+
+  function starting(p: number) {
+    const record = readRecord(p);
+    const phase = describe(record);
+    return record && phase !== "not running" && !phase.startsWith("failed") ? record : null;
   }
 
   function ownedModel(p: number): string | undefined {
@@ -230,7 +235,10 @@ export default async function (pi: ExtensionAPI) {
   }
 
   pi.on("session_start", async (_event, ctx) => {
-    await register(ctx, false);
+    if ((await register(ctx, false)) || following) return;
+    const p = port();
+    const running = starting(p);
+    if (running && startedByUs(p, running)) follow(p, running.pid, ownedModel(p), ctx);
   });
 
   pi.on("session_shutdown", async () => unfollow());
