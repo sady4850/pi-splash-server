@@ -111,7 +111,10 @@ package still never installs Splash itself.
   first can take tens of minutes. While the record says `starting`, the status
   shows `downloading 6.8 / 17.5 GB (38%), 12.0 MB/s, ~15 min left` (total =
   the doctor plan's missing bytes; no total when the Hub is unreachable), or
-  the log's last line before any bytes arrive.
+  the log's last line before any bytes arrive. The status names what is
+  missing, `model`, `draft` or `model + draft` (`downloading draft 0.4 / 3.9
+  GB ...`), and the start notice names the repos: a model already on disk
+  with a missing draft otherwise looks like the model downloading again.
 - Download bytes come from `nettop -P -d -L 2 -s 1`, run once per tick
   (streaming `-L 0` block-buffers into a pipe: nothing for 12+ s), first
   sample absolute as the baseline, then 1 s deltas, summed over the server's
@@ -181,6 +184,13 @@ and `--list-models` see it) and at `session_start` when a server answers, and ag
 - Disk check for the SSD prompt cache: Splash keeps 10 GiB free and takes a
   quarter of the rest; with 16 GB free we got a 1.6 GiB cache. Doctor warns
   under ~25 GB free.
+- Resumable download: a broken download restarts from zero. huggingface_hub
+  1.28 (in splash-m1 1.7.1-m1) writes each file to a per-process
+  `<blob>.<uuid>.incomplete` and deletes it on failure; the Xet cache keeps
+  no chunks. Measured: the DFlash2 draft (3.85 GB) on a direct route at
+  ~0.8 MB/s took ~65 min, the day before the same route broke after 15 min
+  and lost it all. Doctor could warn when the ETA is long and offer a
+  resumable fetch (`curl -C -` of the resolve URL into the blob path).
 - omp plugin on the same core (separate thin package, omp's API differs).
 
 ## Tests

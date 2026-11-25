@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { detectMac, macosWarning, runtimeFor } from "../src/mac.ts";
 import { DRAFT_GB, loadEntries, recommend, diskWarnings, isDownloaded } from "../src/recommend.ts";
-import { bytes, bytesOnDisk, downloadLines, gb, planDownload } from "../src/download.ts";
+import { bytes, bytesOnDisk, downloadLabel, downloadLines, downloadNotice, gb, planDownload } from "../src/download.ts";
 import { downloadProgress } from "../src/netbytes.ts";
 import { providerConfig, providerName } from "../src/provider.ts";
 import {
@@ -157,8 +157,8 @@ export default async function (pi: ExtensionAPI) {
         const plan = await planDownload(model, draft, f.includes("--language-only")).catch(() => null);
         const missing = plan ? bytes(plan.flatMap((r) => r.missing)) : null;
         if (abort.signal.aborted) return;
-        if (missing) ctx.ui.notify(`${gb(missing)} to download.`, "info");
-        if (missing !== 0) progress = downloadProgress(pid, missing, plan ? () => bytesOnDisk(plan) : undefined);
+        if (plan && missing) ctx.ui.notify(downloadNotice(plan), "info");
+        if (missing !== 0) progress = downloadProgress(pid, missing, plan ? () => bytesOnDisk(plan) : undefined, plan ? downloadLabel(plan) : "");
       } else {
         progress = downloadProgress(pid, null);
       }

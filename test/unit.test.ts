@@ -143,6 +143,18 @@ test("download plan picks Splash's files", async () => {
   const done = { repo: "o/d", files: [files[0]], missing: [] };
   assert.deepEqual(downloadLines([done]), ["Downloaded: all 1 files in the Hugging Face cache."]);
   assert.deepEqual(downloadLines([{ repo: "o/r", files, missing: [files[2]] }, done]), ["Download: 0.0 GB of 0.0 GB", "  o/r: 1 of 3 files, 0.0 GB", "  o/d: complete"]);
+
+  const { downloadLabel, downloadNotice } = await import("../src/download.ts");
+  const big = [{ path: "w", size: 15e9, blob: "w" }];
+  const draft = [{ path: "d", size: 3.85e9, blob: "d" }];
+  const model = { repo: "m/q", files: big, missing: big, draft: false };
+  const drafter = { repo: "i/dflash", files: draft, missing: draft, draft: true };
+  assert.equal(downloadLabel([{ ...model, missing: [] }, drafter]), "draft");
+  assert.equal(downloadLabel([model, { ...drafter, missing: [] }]), "model");
+  assert.equal(downloadLabel([model, drafter]), "model + draft");
+  assert.equal(downloadLabel([{ ...model, missing: [] }]), "");
+  assert.equal(downloadNotice([{ ...model, missing: [] }, drafter]), "3.9 GB to download: draft i/dflash.");
+  assert.equal(downloadNotice([model, drafter]), "18.9 GB to download: model m/q, draft i/dflash.");
 });
 
 test("runtime version", async () => {
@@ -163,4 +175,5 @@ test("network bytes of the server's process tree", async () => {
   assert.equal(progressText(6.8e9, 17.5e9, 12e6), "downloading 6.8 / 17.5 GB (38%), 12.0 MB/s, ~15 min left");
   assert.equal(progressText(18e9, 17.5e9, 1e6), "downloading 17.5 / 17.5 GB (99%), 1.0 MB/s");
   assert.equal(progressText(2.5e9, null, 0), "downloading 2.5 GB");
+  assert.equal(progressText(0.4e9, 3.85e9, 1.1e6, "draft"), "downloading draft 0.4 / 3.9 GB (10%), 1.1 MB/s, ~53 min left");
 });

@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 export type RepoFile = { path: string; size: number; blob: string };
-export type RepoPlan = { repo: string; files: RepoFile[]; missing: RepoFile[] };
+export type RepoPlan = { repo: string; files: RepoFile[]; missing: RepoFile[]; draft?: boolean };
 
 export const HUB = join(homedir(), ".cache/huggingface/hub");
 
@@ -57,16 +57,25 @@ export async function planDownload(model: string, draft: string | undefined, lan
   const [repo, variant] = model.split(":");
   const wanted: [string, string | undefined][] = [[repo, variant], ...(draft ? [[draft, undefined] as [string, undefined]] : [])];
   return Promise.all(
-    wanted.map(async ([r, v]) => {
+    wanted.map(async ([r, v], i) => {
       const files = pickFiles(await listRepo(r), v, languageOnly);
       if (!files.length) throw new Error(`no files for ${v ? `${r}:${v}` : r}`);
-      return { repo: r, files, missing: missingFiles(r, files, hub) };
+      return { repo: r, files, missing: missingFiles(r, files, hub), draft: i > 0 };
     }),
   );
 }
 
 export const bytes = (files: RepoFile[]) => files.reduce((s, f) => s + f.size, 0);
 export const gb = (n: number) => `${(n / 1e9).toFixed(1)} GB`;
+
+export function downloadLabel(plan: RepoPlan[]): string {
+  return plan.filter((r) => r.missing.length).map((r) => (r.draft ? "draft" : "model")).join(" + ");
+}
+
+export function downloadNotice(plan: RepoPlan[]): string {
+  const missing = plan.filter((r) => r.missing.length);
+  return `${gb(bytes(missing.flatMap((r) => r.missing)))} to download: ${missing.map((r) => `${r.draft ? "draft" : "model"} ${r.repo}`).join(", ")}.`;
+}
 
 export function downloadLines(plan: RepoPlan[]): string[] {
   const missing = plan.flatMap((r) => r.missing);

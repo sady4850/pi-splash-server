@@ -66,15 +66,16 @@ export function watchBytesIn(root: number, onTotal: (bytes: number) => void): ()
   };
 }
 
-export function progressText(done: number, total: number | null, rate: number): string {
+export function progressText(done: number, total: number | null, rate: number, label = ""): string {
   const speed = rate > 0 ? `, ${(rate / 1e6).toFixed(1)} MB/s` : "";
-  if (!total) return `downloading ${(done / 1e9).toFixed(1)} GB${speed}`;
+  const what = label ? `downloading ${label}` : "downloading";
+  if (!total) return `${what} ${(done / 1e9).toFixed(1)} GB${speed}`;
   const pct = Math.min(99, Math.floor((100 * done) / total));
   const eta = rate > 0 && done < total ? `, ~${Math.ceil((total - done) / rate / 60)} min left` : "";
-  return `downloading ${(Math.min(done, total) / 1e9).toFixed(1)} / ${(total / 1e9).toFixed(1)} GB (${pct}%)${speed}${eta}`;
+  return `${what} ${(Math.min(done, total) / 1e9).toFixed(1)} / ${(total / 1e9).toFixed(1)} GB (${pct}%)${speed}${eta}`;
 }
 
-export function downloadProgress(root: number, total: number | null, onDisk: () => number = () => 0, windowS = 5) {
+export function downloadProgress(root: number, total: number | null, onDisk: () => number = () => 0, label = "", windowS = 5) {
   const samples: [number, number][] = [];
   let net = 0;
   let seen = false;
@@ -89,7 +90,7 @@ export function downloadProgress(root: number, total: number | null, onDisk: () 
     const [[t0, b0], [t1, b1]] = [samples[0] ?? [now, 0], samples[samples.length - 1] ?? [now, 0]];
     const rate = t1 > t0 ? ((b1 - b0) * 1000) / (t1 - t0) : 0;
     const done = Math.max(net, onDisk());
-    return done > 1e6 ? progressText(done, total, rate) : null;
+    return done > 1e6 ? progressText(done, total, rate, label) : null;
   };
   return { text, stop };
 }
