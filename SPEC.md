@@ -7,6 +7,9 @@ official Splash.
 
 Status: draft, 2026-11-24.
 
+Name: `pi-splash-server` (decided 2026-11-25). `pi-splash` on npm is a startup
+splash screen for Pi (mavam/pi-splash), unrelated.
+
 ## Why
 
 - `splash-m1 pi` / `splash pi` already writes a correct Pi provider, but the
@@ -202,8 +205,6 @@ and `--list-models` see it) and at `session_start` when a server answers, and ag
 
 ## Open questions
 
-- Package name: `pi-splash` on npm is taken (a startup splash screen), working
-  name `pi-splash-server`. Also free: `pi-splash-m1`, `pi-splash-local`.
 - README headline needs Splash vs mlx-lm (pi-mlx-models) on the same Pi tasks
   on M1: not measured yet.
 - Whether to ask splash-m1 / Inco to link it, after it works.
