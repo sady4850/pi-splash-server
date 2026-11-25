@@ -167,7 +167,7 @@ export default async function (pi: ExtensionAPI) {
       ctx.ui.setStatus("splash", undefined);
       if (record?.phase === "ready") {
         const served = await register(ctx, true);
-        ctx.ui.notify(`Splash ready: ${served?.id}, ${served?.context.toLocaleString()} context tokens`, "info");
+        ctx.ui.notify(`Splash ready: ${served?.id}, ${served?.context.toLocaleString()} context tokens (back: /model)`, "info");
       } else {
         ctx.ui.notify(`Splash did not start: ${describe(record)}. Log: ${logPath(p)}`, "error");
       }
@@ -220,7 +220,7 @@ export default async function (pi: ExtensionAPI) {
           return stopCmd(ctx);
         case "use": {
           const served = await register(ctx, true);
-          return ctx.ui.notify(served ? `Using ${served.id}` : `No ready Splash server on port ${port()}.`, served ? "info" : "error");
+          return ctx.ui.notify(served ? `Using ${served.id} (back: /model)` : `No ready Splash server on port ${port()}.`, served ? "info" : "error");
         }
         case "log": {
           let text = "";

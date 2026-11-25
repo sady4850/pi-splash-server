@@ -22,5 +22,8 @@ In Pi:
 /splash log        last lines of the server log
 ```
 
+`start` and `use` switch the session to the Splash model; `/model` switches
+back, the server keeps running.
+
 Settings, all optional, in `~/.pi/agent/splash/config.json`:
 `port`, `model`, `flags`, `stopOnExit`, `keepAwake`, `launcher`.
