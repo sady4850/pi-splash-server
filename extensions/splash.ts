@@ -192,7 +192,9 @@ export default async function (pi: ExtensionAPI) {
     }
     if (!startedByUs(p, record) && !(await ctx.ui.confirm("Stop Splash?", `The server on port ${p} was not started by pi-splash.`))) return;
     unfollow(ctx);
-    ctx.ui.notify((await stop(p, record)) ? "Splash stopped." : "Splash did not stop within 60 s.", "info");
+    const stopped = await stop(p, record);
+    const onIt = stopped && ctx.model?.provider === providerName(p) ? ` The session is still on ${ctx.model.provider}/${ctx.model.id}; switch with /model.` : "";
+    ctx.ui.notify(stopped ? `Splash stopped.${onIt}` : "Splash did not stop within 60 s.", "info");
   }
 
   pi.on("session_start", async (_event, ctx) => {
