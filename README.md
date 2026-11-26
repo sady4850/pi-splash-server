@@ -5,6 +5,8 @@ Run a local [Splash](https://github.com/incoai/splash) server from inside
 drives [splash-m1](https://github.com/paperniuk/splash), on M3 and newer
 official Splash.
 
+![Pi fixing a bug with Qwen3.8-27B served by Splash on an M1 Pro](https://raw.githubusercontent.com/sady4850/pi-splash-server/main/media/screenshot.png)
+
 Splash itself already writes a Pi provider (`splash-m1 pi`), but the server has
 to be started by hand with flags you have to know. This package starts it in
 the background, shows download and load progress in Pi's status bar, and

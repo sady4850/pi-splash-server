@@ -262,7 +262,7 @@ export default async function (pi: ExtensionAPI) {
           return stopCmd(ctx);
         case "use": {
           const served = await register(ctx, true);
-          return ctx.ui.notify(served ? `Using ${served.id} (back: /model)` : `No ready Splash server on port ${port()}.`, served ? "info" : "error");
+          return ctx.ui.notify(served ? `Using Splash: ${served.id}, ${served.context.toLocaleString()} context tokens (back: /model)` : `No ready Splash server on port ${port()}.`, served ? "info" : "error");
         }
         case "log": {
           let text = "";

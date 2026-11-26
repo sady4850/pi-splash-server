@@ -23,7 +23,8 @@
   "pi": {
     "extensions": [
       "./extensions/splash.ts"
-    ]
+    ],
+    "image": "https://raw.githubusercontent.com/sady4850/pi-splash-server/main/media/screenshot.png"
   },
   "omp": {
     "extensions": [
