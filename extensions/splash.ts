@@ -1,6 +1,8 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { runBench } from "../src/bench.ts";
+import { benchReport } from "../src/bench-report.ts";
 import { detectMac, macosWarning, runtimeFor } from "../src/mac.ts";
 import { DRAFT_GB, loadEntries, recommend, diskWarnings, isDownloaded } from "../src/recommend.ts";
 import { bytes, bytesOnDisk, downloadLabel, downloadLines, downloadNotice, gb, planDownload } from "../src/download.ts";
@@ -55,7 +57,7 @@ export default async function (pi: ExtensionAPI) {
     const mac = detectMac();
     const { runtime, pick, smaller } = recommend(mac);
     const l = launcher();
-    const installed = l.path ? versionOf(launcherVersion(l.path)) : null;
+    const installed = l.path ? versionOf(await launcherVersion(l.path)) : null;
     const [latest, plan] = await Promise.all([
       l.path ? latestRelease(l.name) : Promise.resolve(null),
       pick ? planDownload(pick.model, pick.draft, pick.flags.includes("--language-only")).catch((e: Error) => e) : Promise.resolve(null),
@@ -204,7 +206,24 @@ export default async function (pi: ExtensionAPI) {
     ctx?.ui.setStatus("splash", undefined);
   }
 
+  let bench: { abort: AbortController; done: Promise<void> } | null = null;
+
+  async function benchmark(long: boolean, ctx: any, signal: AbortSignal) {
+    const p = port();
+    const progress = (text: string) => ctx.ui.setStatus("splash", `splash: bench ${text}`);
+    try {
+      const { result, filename } = await runBench(p, long, signal, launcher, progress);
+      ctx.ui.notify(`${benchReport(result)}\nJSON: ~/.pi/agent/splash/${filename}`, result.error ? "error" : "info");
+    } catch (e) {
+      ctx.ui.notify(`Splash bench: ${signal.aborted ? "aborted" : e instanceof Error ? e.message : String(e)}`, "error");
+    } finally {
+      bench = null;
+      ctx.ui.setStatus("splash", undefined);
+    }
+  }
+
   async function stopCmd(ctx: any) {
+    bench?.abort.abort();
     const p = port();
     const record = readRecord(p);
     if (!record || describe(record) === "not running") {
@@ -231,7 +250,7 @@ export default async function (pi: ExtensionAPI) {
     }
     const l = launcher();
     if (!l.path) return offer(INSTALL[runtime], `Install ${runtime}`, ctx);
-    const installed = versionOf(launcherVersion(l.path));
+    const installed = versionOf(await launcherVersion(l.path));
     if (!update) {
       ctx.ui.notify(`${l.name} ${installed ?? "?"} is installed (${l.path}). Newer release: /splash update`, "info");
       return;
@@ -252,7 +271,11 @@ export default async function (pi: ExtensionAPI) {
     if (running && startedByUs(p, running)) follow(p, running.pid, ownedModel(p), ctx);
   });
 
-  pi.on("session_shutdown", async () => unfollow());
+  pi.on("session_shutdown", async () => {
+    unfollow();
+    bench?.abort.abort();
+    await bench?.done;
+  });
 
   pi.on("before_provider_request", async (event: any, ctx: any) => {
     const p = port();
@@ -265,15 +288,15 @@ export default async function (pi: ExtensionAPI) {
     warmed.add(key);
     writeWarmed(STATE_DIR, p, pid, warmed);
     if (!needsWarm(await countTokens(p, event.payload, process.env.SPLASH_API_KEY))) return;
-    ctx.ui.setStatus("splash", "splash: caching the system prompt for new sessions");
+    if (!bench) ctx.ui.setStatus("splash", "splash: caching the system prompt for new sessions");
     await warm(p, event.payload, process.env.SPLASH_API_KEY);
-    ctx.ui.setStatus("splash", undefined);
+    if (!bench) ctx.ui.setStatus("splash", undefined);
   });
 
   pi.registerCommand("splash", {
-    description: "Local Splash server: status, doctor, start [model], stop, use, log, install, update",
+    description: "Local Splash server: status, doctor, start [model], bench [--long], stop, use, log, install, update",
     getArgumentCompletions: (prefix: string) => {
-      const items = ["doctor", "start", "stop", "use", "log", "install", "update"].filter((s) => s.startsWith(prefix)).map((s) => ({ value: s, label: s }));
+      const items = ["doctor", "start", "bench", "bench --long", "stop", "use", "log", "install", "update"].filter((s) => s.startsWith(prefix)).map((s) => ({ value: s, label: s }));
       return items.length ? items : null;
     },
     handler: async (args: string, ctx: any) => {
@@ -285,6 +308,13 @@ export default async function (pi: ExtensionAPI) {
           return ctx.ui.notify((await doctor()).join("\n"), "info");
         case "start":
           return startCmd(rest[0], ctx);
+        case "bench": {
+          if (rest.length && !(rest.length === 1 && rest[0] === "--long")) return ctx.ui.notify("Usage: /splash bench [--long]", "error");
+          if (bench) return ctx.ui.notify("A Splash bench is already running.", "info");
+          const abort = new AbortController();
+          bench = { abort, done: benchmark(rest[0] === "--long", ctx, abort.signal) };
+          return;
+        }
         case "stop":
           return stopCmd(ctx);
         case "use": {

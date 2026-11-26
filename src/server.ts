@@ -2,6 +2,7 @@ import { spawn, execFileSync } from "node:child_process";
 import { closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { commandOutput } from "./mac.ts";
 
 export const DEFAULT_PORT = 8000;
 export const RUNTIME_DIR = join(homedir(), "Library/Application Support/Splash/runtime");
@@ -25,12 +26,8 @@ export function findLauncher(name: string): string | null {
   }
 }
 
-export function launcherVersion(path: string): string {
-  try {
-    return execFileSync(path, ["--version"], { encoding: "utf8", timeout: 10000 }).trim();
-  } catch {
-    return "";
-  }
+export function launcherVersion(path: string): Promise<string> {
+  return commandOutput(path, ["--version"], 10000);
 }
 
 export const RELEASES: { [runtime: string]: string } = { "splash-m1": "paperniuk/splash", splash: "incoai/splash" };
@@ -80,9 +77,13 @@ export function describe(record: Record | null): string {
 
 const base = (port: number) => `http://127.0.0.1:${port}`;
 
-async function getJSON(url: string, timeoutMs = 2000): Promise<any> {
+async function getJSON(url: string, abort?: AbortSignal): Promise<any> {
   try {
-    const r = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+    const timeout = AbortSignal.timeout(2000);
+    const r = await fetch(url, {
+      headers: process.env.SPLASH_API_KEY ? { authorization: `Bearer ${process.env.SPLASH_API_KEY}` } : {},
+      signal: abort ? AbortSignal.any([timeout, abort]) : timeout,
+    });
     return r.ok ? await r.json() : null;
   } catch {
     return null;
@@ -107,10 +108,12 @@ export function parseLaterSystem(status: any): boolean {
   return outcomes.every((o) => o === "native" || o === "patched");
 }
 
-export async function probe(port: number): Promise<ListedModel | null> {
-  const model = parseModels(await getJSON(`${base(port)}/v1/models`));
+export async function probe(port: number, signal?: AbortSignal): Promise<(ListedModel & { instanceModel?: string }) | null> {
+  const model = parseModels(await getJSON(`${base(port)}/v1/models`, signal));
   if (!model) return null;
-  return { ...model, laterSystem: parseLaterSystem(await getJSON(`${base(port)}/status`)) };
+  const status = await getJSON(`${base(port)}/status`, signal);
+  return { ...model, instanceModel: typeof status?.instance?.model === "string" ? status.instance.model : undefined,
+    laterSystem: parseLaterSystem(status) };
 }
 
 export type StartOptions = { launcher: string; model: string; flags: string[]; port: number; keepAwake: boolean; stopWithPid?: number };
@@ -127,13 +130,22 @@ export function start(o: StartOptions): number {
   const env = { ...process.env, ...(o.stopWithPid ? { SPLASH_APP_PID: String(o.stopWithPid) } : {}) };
   const child = spawn(cmd, rest, { detached: true, stdio: ["ignore", out, out], env });
   child.unref();
-  writeFileSync(join(STATE_DIR, `owned-${o.port}.json`), JSON.stringify({ pid: child.pid, model: o.model, started: new Date().toISOString() }));
+  writeFileSync(join(STATE_DIR, `owned-${o.port}.json`), JSON.stringify({ pid: child.pid, model: o.model, flags: o.flags, started: new Date().toISOString() }));
   return child.pid!;
 }
 
 export function ownedPid(port: number): number | null {
   try {
     return JSON.parse(readFileSync(join(STATE_DIR, `owned-${port}.json`), "utf8")).pid;
+  } catch {
+    return null;
+  }
+}
+
+export function ownedFlags(port: number): string[] | null {
+  try {
+    const { flags } = JSON.parse(readFileSync(join(STATE_DIR, `owned-${port}.json`), "utf8"));
+    return Array.isArray(flags) && flags.every((f) => typeof f === "string") ? flags : null;
   } catch {
     return null;
   }
@@ -192,7 +204,8 @@ export async function waitReady(port: number, signal: AbortSignal, onPhase: (tex
     if (record?.phase === "ready" && (await probe(port))) return record;
     if (record?.phase === "failed") return record;
     const pid = ownedPid(port);
-    if (pid && !alive(pid) && Date.now() - t0 > 5000) return record;
+    const owner = pid !== null && alive(pid);
+    if (!owner && (!record || !alive(record.pid)) && Date.now() - t0 > 5000) return record;
     await new Promise((r) => setTimeout(r, 1000));
   }
   return null;

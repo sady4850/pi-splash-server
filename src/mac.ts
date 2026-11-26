@@ -1,6 +1,17 @@
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { statfsSync } from "node:fs";
 import { homedir, totalmem } from "node:os";
+import { promisify } from "node:util";
+
+const exec = promisify(execFile);
+
+export async function commandOutput(cmd: string, args: string[], timeout = 5000): Promise<string> {
+  try {
+    return (await exec(cmd, args, { timeout, encoding: "utf8" })).stdout.trim();
+  } catch {
+    return "";
+  }
+}
 
 export type Mac = {
   chip: string;

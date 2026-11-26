@@ -218,3 +218,67 @@ test("prewarm: first request of a session, head key, warm body", async () => {
   assert.deepEqual([...readWarmed(dir, 8000, 12)], []);
   assert.deepEqual([...readWarmed(dir, 8001, 11)], []);
 });
+
+test("bench median and range", async () => {
+  const { stats } = await import("../src/bench-report.ts");
+  const values = [12, 2, 7];
+  assert.deepEqual(stats(values), { median: 7, min: 2, max: 12 });
+  assert.deepEqual(values, [12, 2, 7]);
+  assert.deepEqual(stats([4, 3]), { median: 3.5, min: 3, max: 4 });
+  assert.deepEqual(stats([0]), { median: 0, min: 0, max: 0 });
+  assert.equal(stats([]), null);
+});
+
+test("bench response preserves server timings, cache hits and optional draft counts", async () => {
+  const { parseMeasurement } = await import("../src/bench.ts");
+  const usage = { prompt_tokens: 8192, completion_tokens: 128, prompt_tokens_details: { cached_tokens: 8176 } };
+  const timings = { prompt_n: 16, prompt_ms: 80, prompt_per_second: 200, predicted_n: 128, predicted_ms: 6400,
+    predicted_per_second: 20, cache_n: 8176, draft_n: 100, draft_n_accepted: 75 };
+  const latency = { ttft_ms: 0, wall_ms: 6500, start_to_first_token_ms: 85, first_token_to_done_ms: 6415 };
+  assert.deepEqual(parseMeasurement({ usage, timings, metrics: { request_latency: latency } }), {
+    promptTokens: 8192, completionTokens: 128, cachedTokens: 8176, ttftMs: 0, timings, latency, draftAcceptance: 0.75,
+  });
+  const plain = parseMeasurement({ usage: { ...usage, prompt_tokens_details: { cached_tokens: 0 } },
+    timings: { predicted_per_second: 9 }, metrics: { request_latency: { wall_ms: 120 } } });
+  assert.equal(plain.ttftMs, 120);
+  assert.equal(plain.draftAcceptance, null);
+  assert.equal(plain.cachedTokens, 0);
+  assert.equal(plain.timings.draft_n, undefined);
+});
+
+test("bench extracts serve flags and removes private values", async () => {
+  const { serverFlags } = await import("../src/bench-env.ts");
+  assert.equal(serverFlags("/Users/test user/bin/splash-m1 serve --model org/m:Q4 --port 8000 --language-only --max-context 64K --max-memory 21G"),
+    "--model org/m:Q4 --language-only --max-context 64K --max-memory 21G");
+  assert.equal(serverFlags("splash serve --cache-dir /Users/test user/cache --api-key=secret --port=8000 --host private.local"),
+    "--cache-dir [redacted] --api-key [redacted] --host [redacted]");
+  assert.equal(serverFlags("splash serve --port 8123"), "");
+  assert.equal(serverFlags("/Users/a b/python3 -u -P -m server.server /Users/a b/.selections/7c06 --model org/m --binary /Users/a b/bin/engine --port 8000 --serve-record /Users/a b/serve-8000.json --max-memory=22548578304 --max-context=65536"),
+    "--max-memory 22548578304 --max-context 65536");
+  assert.equal(serverFlags("/tmp/serve/splash --version"), null);
+  assert.equal(serverFlags(""), null);
+});
+
+test("bench parses used swap and system free memory", async () => {
+  const { swapGB, freeMemoryPercent } = await import("../src/bench-env.ts");
+  assert.equal(swapGB("total = 8192.00M  used = 1536.00M  free = 6656.00M (encrypted)"), 1.5);
+  assert.equal(swapGB("total = 2G used = 0G free = 2G"), 0);
+  assert.equal(swapGB(""), null);
+  assert.equal(freeMemoryPercent("Pages free: 31240\nSystem-wide memory free percentage: 41%"), 41);
+  assert.equal(freeMemoryPercent("System-wide memory free percentage: 0%"), 0);
+  assert.equal(freeMemoryPercent("unknown"), null);
+});
+
+test("bench sizes the full nonce-prefixed prompt with the model's counter", async () => {
+  const { buildPrompt } = await import("../src/bench.ts");
+  const source = readFileSync(new URL("../data/bench.txt", import.meta.url), "utf8");
+  for (const [target, chars] of [[1024, 2], [8192, 8], [32768, 4]]) {
+    const count = async (text: string) => Math.ceil(text.length / chars) + 32;
+    const prompt = await buildPrompt(source, "bench deadbeef", target, count, target - 1);
+    assert.ok(prompt.startsWith("bench deadbeef\n" + source.slice(0, 80)));
+    assert.ok(await count(prompt) >= target * 0.95);
+    assert.ok(await count(prompt) <= target - 1);
+    assert.equal(await buildPrompt(source, "bench deadbeef", target, count, target - 1), prompt);
+  }
+  await assert.rejects(buildPrompt(source, "bench 1", 1024, async () => 0), /input_tokens/);
+});

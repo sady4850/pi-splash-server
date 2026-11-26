@@ -1,0 +1,15 @@
+Field notes from the river survey
+
+Each station keeps a notebook beside the gauge. At the start of a shift, the observer reads the water level against the brass mark on the east wall. The mark stays in the same place when the gauge is removed for cleaning. In winter a thin sheet of ice sometimes touches the ruler. The observer records that condition before breaking the ice to take a second reading.
+
+The notebook has a pair of columns for each visit. The first column holds the reading exactly as it appeared in the field. The second holds the height relative to the survey datum. If the observer has to repeat a reading, both entries stay on the page. A short explanation beside the entry usually settles the matter when the office prepares its monthly tables.
+
+At the end of each week a technician walks the bank between the station and the footbridge. Fallen branches can divert a small stream toward the stilling pool. A branch near the inlet can also make the gauge respond slowly to a rising river. The technician draws a plan of the inlet and writes down the distance from the nearest bridge pier. This makes it possible to find the same obstruction after the water has fallen.
+
+Samples travel in glass bottles packed upright in a wooden case. A paper label on the cap carries the station code and the local time. A second label sits inside a clear sleeve on the bottle. When the case reaches the laboratory, the receiving clerk compares the two labels with the dispatch sheet before assigning a shelf. Bottles with a broken seal go on a separate tray for review.
+
+The afternoon team checks the recorder clock against the office clock. A difference of a minute matters during a sudden rise because the upstream station may see the crest only a few minutes before the lower station. The team enters the difference in the log. The original series keeps the times shown on the recorder, and the working series carries the corrected times.
+
+On quiet days the survey boat follows a line marked by two painted posts. One observer holds the sounding rod while another reads the distance from a tape stretched across the deck. The boat returns along the same line for a second pass. Where the bottom is soft, the rod sinks a little farther on each pass. The observer describes the surface in words as well as reporting a depth.
+
+Before filing a chart, the office checks its scale against the first and last soundings. A nearby station can help explain a sudden change, but its readings cannot replace a missing page. Gaps remain visible on the chart. A note in the margin tells the next reader where to look for the original notebook and which part of the river the chart covers.

@@ -64,6 +64,7 @@ In Pi:
 /splash start [model]  start the recommended model, or any repo or repo:QUANT, in the background and switch to it
 /splash                status and the next step
 /splash use            switch to a Splash server started outside Pi
+/splash bench [--long] measure speed and memory use on the running server
 /splash stop           stop the server
 /splash log            last lines of the server log
 /splash install        put the runtime's install command into the editor
@@ -85,6 +86,14 @@ comes in about 1 s instead of about 10 s on an M1 Pro. Splash 1.7.3 would not
 keep such a state for a system prompt and tools under 2,048 tokens, as Pi's
 are, unless the first message is a few words long.
 
+## Measure your Mac
+
+`/splash bench` measures prompt processing, cache reuse, decode speed and memory
+use for any model started with `/splash start <repo or repo:QUANT>`. Close other
+heavy apps and allow a few minutes, or longer with `--long` for a 32K prompt
+if the context allows it. We welcome results as
+[issues in this repo](https://github.com/sady4850/pi-splash-server/issues).
+
 ## What it picks
 
 Qwen3.8-27B, by memory:
@@ -98,8 +107,8 @@ Qwen3.8-27B, by memory:
 | 16 GB | `prism-ml/Ternary-Bonsai-2-27B-gguf:PQ2_0` | `--language-only` |
 
 `/splash doctor` shows the evidence for each pick (measured on which Mac, or
-not yet). The table lives in `data/recommendations.json`; reports from 16, 24
-and 64 GB Macs are welcome.
+not yet). The table lives in `data/recommendations.json`. Reports from
+`/splash bench` on 16, 24 and 64 GB Macs are welcome.
 
 ## Settings
 
