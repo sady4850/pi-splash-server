@@ -60,15 +60,17 @@ Update with `pi update`. To try it without installing:
 In Pi:
 
 ```text
-/splash doctor     chip, memory, disk, runtime, recommended model and flags, what is left to download
-/splash start      start the recommended model in the background and switch to it
-/splash            status and the next step
-/splash use        switch to a Splash server started outside Pi
-/splash stop       stop the server
-/splash log        last lines of the server log
-/splash install    put the runtime's install command into the editor
-/splash update     same for a newer runtime release
+/splash doctor         chip, memory, disk, runtime, recommended model and flags, what is left to download
+/splash start [model]  start the recommended model, or any repo or repo:QUANT, in the background and switch to it
+/splash                status and the next step
+/splash use            switch to a Splash server started outside Pi
+/splash stop           stop the server
+/splash log            last lines of the server log
+/splash install        put the runtime's install command into the editor
+/splash update         same for a newer runtime release
 ```
+
+To start a different model, run `/splash stop` first.
 
 `start` and `use` switch the session to the Splash model; `/model` switches
 back, the server keeps running. The first start downloads the model (the

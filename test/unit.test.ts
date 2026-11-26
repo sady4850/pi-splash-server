@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { macosWarning, parseFamily, runtimeFor } from "../src/mac.ts";
 import { recommend, diskWarnings } from "../src/recommend.ts";
-import { parseModels, parseLaterSystem, startedByUs, describe, lastLine } from "../src/server.ts";
+import { parseModels, servesModel, parseLaterSystem, startedByUs, describe, lastLine } from "../src/server.ts";
 import { providerConfig, providerName } from "../src/provider.ts";
 
 test("chip family and runtime", () => {
@@ -32,10 +32,23 @@ test("disk warnings", () => {
 });
 
 test("models listing", () => {
-  const m = parseModels(JSON.parse(readFileSync(new URL("./fixtures/models.json", import.meta.url), "utf8")));
-  assert.deepEqual(m, { id: "mlx-community/Qwen3.8-27B-GPTQ-4bit", context: 65536, inputModalities: ["text"] });
+  const listing = fixture("models.json");
+  const id = "mlx-community/Qwen3.8-27B-GPTQ-4bit";
+  assert.deepEqual(parseModels(listing), { id, ids: [id], context: 65536, inputModalities: ["text"] });
+  listing.data.push({ id: "alias" });
+  assert.deepEqual(parseModels(listing)?.ids, [id, "alias"]);
   assert.equal(parseModels({ data: [{ id: "x", owned_by: "llama.cpp", context_length: 10 }] }), null);
   assert.equal(parseModels(null), null);
+});
+
+test("served model matches full ids including the quant", () => {
+  const ids = ["alias", "org/repo:Q4"];
+  assert.equal(servesModel("alias", ids), true);
+  assert.equal(servesModel("Org/Repo:q4", ids), true);
+  assert.equal(servesModel("org/repo:Q3", ids), false);
+  assert.equal(servesModel("org/repo", ids), false);
+  assert.equal(servesModel("org/repo:Q4", ["org/repo"]), false);
+  assert.equal(servesModel("org/repo", []), false);
 });
 
 test("later system", () => {

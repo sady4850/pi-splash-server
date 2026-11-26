@@ -15,6 +15,7 @@ export type Record = {
   failure?: { kind?: string; message?: string };
 };
 export type ServedModel = { id: string; context: number; inputModalities: string[]; laterSystem: boolean };
+type ListedModel = ServedModel & { ids: string[] };
 
 export function findLauncher(name: string): string | null {
   try {
@@ -88,10 +89,16 @@ async function getJSON(url: string, timeoutMs = 2000): Promise<any> {
   }
 }
 
-export function parseModels(listing: any): Omit<ServedModel, "laterSystem"> | null {
-  const m = listing?.data?.[0];
+export function servesModel(requested: string, served: string[]): boolean {
+  return served.some((id) => id.toLowerCase() === requested.toLowerCase());
+}
+
+export function parseModels(listing: any): Omit<ListedModel, "laterSystem"> | null {
+  if (!Array.isArray(listing?.data)) return null;
+  const m = listing.data[0];
   if (!m || m.owned_by !== "splash" || !Number.isInteger(m.context_length) || m.context_length <= 0) return null;
-  return { id: m.id, context: m.context_length, inputModalities: m.input_modalities ?? ["text"] };
+  const ids = listing.data.map((entry: any) => entry?.id).filter((id: unknown) => typeof id === "string");
+  return { id: m.id, ids, context: m.context_length, inputModalities: m.input_modalities ?? ["text"] };
 }
 
 export function parseLaterSystem(status: any): boolean {
@@ -100,7 +107,7 @@ export function parseLaterSystem(status: any): boolean {
   return outcomes.every((o) => o === "native" || o === "patched");
 }
 
-export async function probe(port: number): Promise<ServedModel | null> {
+export async function probe(port: number): Promise<ListedModel | null> {
   const model = parseModels(await getJSON(`${base(port)}/v1/models`));
   if (!model) return null;
   return { ...model, laterSystem: parseLaterSystem(await getJSON(`${base(port)}/status`)) };

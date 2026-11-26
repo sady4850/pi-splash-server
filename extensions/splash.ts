@@ -9,7 +9,7 @@ import { providerConfig, providerName } from "../src/provider.ts";
 import { countTokens, headKey, needsWarm, opensSession, readWarmed, warm, writeWarmed } from "../src/prewarm.ts";
 import {
   DEFAULT_PORT, STATE_DIR, describe, findLauncher, latestRelease, launcherVersion, logPath, probe, readRecord,
-  start, startedByUs, stop, versionOf, waitReady,
+  type ServedModel, servesModel, start, startedByUs, stop, versionOf, waitReady,
 } from "../src/server.ts";
 
 type Config = { port?: number; model?: string; flags?: string[]; stopOnExit?: boolean; keepAwake?: boolean; launcher?: string };
@@ -34,9 +34,8 @@ export default async function (pi: ExtensionAPI) {
   const atLoad = await probe(port());
   if (atLoad) pi.registerProvider(providerName(port()), providerConfig(port(), atLoad) as any);
 
-  async function register(ctx: any, switchTo: boolean) {
-    const p = port();
-    const served = await probe(p);
+  async function register(ctx: any, switchTo: boolean, p = port(), known?: ServedModel) {
+    const served = known ?? await probe(p);
     if (!served) return null;
     pi.registerProvider(providerName(p), providerConfig(p, served) as any);
     if (switchTo) {
@@ -104,19 +103,29 @@ export default async function (pi: ExtensionAPI) {
 
   async function startCmd(model: string | undefined, ctx: any) {
     const p = port();
-    if (await probe(p)) {
-      await register(ctx, true);
+    const served = await probe(p);
+    if (served) {
+      if (model && !servesModel(model, served.ids)) {
+        ctx.ui.notify(`Port ${p} serves ${served.id}, not ${model}. Switch to what runs: /splash use. Or /splash stop, then /splash start ${model}.`, "error");
+        return;
+      }
+      await register(ctx, true, p, served);
       ctx.ui.notify(`Splash already serves on port ${p}; using it.`, "info");
       return;
     }
-    if (following) {
-      ctx.ui.notify(`Already following the start on port ${p}: ${describe(readRecord(p))}.`, "info");
-      return;
-    }
     const running = starting(p);
-    if (running) {
-      ctx.ui.notify(`Splash is already starting on port ${p} (${describe(running)}); following it in the status bar.`, "info");
-      follow(p, running.pid, ownedModel(p), ctx);
+    if (following || running) {
+      const loading = model && running && !startedByUs(p, running) ? undefined : ownedModel(p);
+      if (model && (!loading || !servesModel(model, [loading]))) {
+        ctx.ui.notify(`Port ${p} is starting ${loading ?? "an unknown model"}. Switch when ready: /splash use. Or /splash stop, then /splash start ${model}.`, "error");
+        return;
+      }
+      if (following) {
+        ctx.ui.notify(`Already following the start on port ${p}: ${describe(readRecord(p))}.`, "info");
+      } else if (running) {
+        ctx.ui.notify(`Splash is already starting on port ${p} (${describe(running)}); following it in the status bar.`, "info");
+        follow(p, running.pid, loading, ctx);
+      }
       return;
     }
     const l = launcher();
@@ -145,7 +154,8 @@ export default async function (pi: ExtensionAPI) {
 
   function ownedModel(p: number): string | undefined {
     try {
-      return JSON.parse(readFileSync(join(STATE_DIR, `owned-${p}.json`), "utf8")).model;
+      const { model } = JSON.parse(readFileSync(join(STATE_DIR, `owned-${p}.json`), "utf8"));
+      return typeof model === "string" ? model : undefined;
     } catch {
       return undefined;
     }
