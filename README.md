@@ -12,6 +12,29 @@ to be started by hand with flags you have to know. This package starts it in
 the background, shows download and load progress in Pi's status bar, and
 switches the session to it when it is ready.
 
+## Against plain mlx-lm
+
+Ten Pi tasks over a small repository (explain it, find a script, edit the
+README, new sessions, `-c` follow-ups, server restarts), one run each, on an
+M1 Pro 32 GB with the same weights, `mlx-community/Qwen3.8-27B-GPTQ-4bit`,
+thinking on. Splash is splash-m1 1.7.3-m1 started by this package, with its
+DFlash2 draft; mlx-lm is `mlx_lm.server` 0.32.2 started the way
+`@taoc/pi-mlx-models` starts it, with no draft. All answers were right on both.
+
+| | Splash | mlx-lm |
+|---|---|---|
+| Decode | 24.5 tok/s | 9.3 tok/s |
+| Prompt processing | 91-166 tok/s | 48-55 tok/s |
+| All ten tasks, Pi wall time | 329 s | 1,057 s |
+| First task on a cold server, start included | 125 s | 418 s |
+| First token of a new session on a running server | 0.7-0.8 s | 0.6-1.0 s |
+| Server start until the first token | ~62 s | ~35 s |
+
+mlx-lm answers at once and loads the model on the first request; Splash loads,
+warms up and checks its Neural Engine split before it says ready, then wins
+from the first task on. The draft model is a large part of the decode gap and
+exists only on the Splash side.
+
 ## Requirements
 
 - Apple silicon Mac. M1/M2 need macOS 26.4 or newer (splash-m1).
