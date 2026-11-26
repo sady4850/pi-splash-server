@@ -3,6 +3,28 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 export const WARM_TIMEOUT_MS = 180_000;
+export const KEPT_HEAD_TOKENS = 2048;
+const WARM_TAIL_TOKENS = 16;
+
+export function needsWarm(warmPromptTokens: number | null): boolean {
+  return warmPromptTokens === null || warmPromptTokens - WARM_TAIL_TOKENS < KEPT_HEAD_TOKENS;
+}
+
+export async function countTokens(port: number, payload: Payload, apiKey?: string): Promise<number | null> {
+  try {
+    const { stream, max_completion_tokens, ...body } = warmBody(payload);
+    const r = await fetch(`http://127.0.0.1:${port}/v1/chat/completions/count_tokens`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}) },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(10_000),
+    });
+    const n = r.ok ? (await r.json())?.input_tokens : null;
+    return Number.isInteger(n) ? n : null;
+  } catch {
+    return null;
+  }
+}
 
 type Message = { role?: string; content?: unknown };
 type Payload = { messages?: Message[]; tools?: unknown; [key: string]: unknown };

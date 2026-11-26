@@ -179,7 +179,12 @@ test("network bytes of the server's process tree", async () => {
 });
 
 test("prewarm: first request of a session, head key, warm body", async () => {
-  const { opensSession, headKey, warmBody, readWarmed, writeWarmed } = await import("../src/prewarm.ts");
+  const { opensSession, headKey, warmBody, readWarmed, writeWarmed, needsWarm } = await import("../src/prewarm.ts");
+  assert.equal(needsWarm(1530), true);
+  assert.equal(needsWarm(2063), true);
+  assert.equal(needsWarm(2064), false);
+  assert.equal(needsWarm(8090), false);
+  assert.equal(needsWarm(null), true);
   const sys = { role: "system", content: "You are pi." };
   const tools = [{ type: "function", function: { name: "bash" } }];
   const a = { model: "m", stream: true, stream_options: { include_usage: true }, max_completion_tokens: 32768, reasoning_effort: "medium", tools,

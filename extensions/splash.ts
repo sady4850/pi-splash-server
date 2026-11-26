@@ -6,7 +6,7 @@ import { DRAFT_GB, loadEntries, recommend, diskWarnings, isDownloaded } from "..
 import { bytes, bytesOnDisk, downloadLabel, downloadLines, downloadNotice, gb, planDownload } from "../src/download.ts";
 import { downloadProgress } from "../src/netbytes.ts";
 import { providerConfig, providerName } from "../src/provider.ts";
-import { headKey, opensSession, readWarmed, warm, writeWarmed } from "../src/prewarm.ts";
+import { countTokens, headKey, needsWarm, opensSession, readWarmed, warm, writeWarmed } from "../src/prewarm.ts";
 import {
   DEFAULT_PORT, STATE_DIR, describe, findLauncher, latestRelease, launcherVersion, logPath, probe, readRecord,
   start, startedByUs, stop, versionOf, waitReady,
@@ -254,6 +254,7 @@ export default async function (pi: ExtensionAPI) {
     if (warmed.has(key)) return;
     warmed.add(key);
     writeWarmed(STATE_DIR, p, pid, warmed);
+    if (!needsWarm(await countTokens(p, event.payload, process.env.SPLASH_API_KEY))) return;
     ctx.ui.setStatus("splash", "splash: caching the system prompt for new sessions");
     await warm(p, event.payload, process.env.SPLASH_API_KEY);
     ctx.ui.setStatus("splash", undefined);
