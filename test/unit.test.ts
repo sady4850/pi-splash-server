@@ -177,3 +177,26 @@ test("network bytes of the server's process tree", async () => {
   assert.equal(progressText(2.5e9, null, 0), "downloading 2.5 GB");
   assert.equal(progressText(0.4e9, 3.85e9, 1.1e6, "draft"), "downloading draft 0.4 / 3.9 GB (10%), 1.1 MB/s, ~53 min left");
 });
+
+test("prewarm: first request of a session, head key, warm body", async () => {
+  const { opensSession, headKey, warmBody, readWarmed, writeWarmed } = await import("../src/prewarm.ts");
+  const sys = { role: "system", content: "You are pi." };
+  const tools = [{ type: "function", function: { name: "bash" } }];
+  const a = { model: "m", stream: true, stream_options: { include_usage: true }, max_completion_tokens: 32768, reasoning_effort: "medium", tools,
+    messages: [sys, { role: "user", content: [{ type: "text", text: "Look at this repository." }] }] };
+  const b = { ...a, max_completion_tokens: 100, messages: [sys, { role: "user", content: "other" }] };
+  assert.equal(opensSession(a), true);
+  assert.equal(opensSession({ ...a, messages: [sys, a.messages[1], { role: "assistant", content: "x" }, { role: "user", content: "y" }] }), false);
+  assert.equal(opensSession({ ...a, messages: [{ role: "user", content: "x" }] }), false);
+  assert.equal(headKey(a), headKey(b));
+  assert.notEqual(headKey(a), headKey({ ...a, tools: [] }));
+  assert.notEqual(headKey(a), headKey({ ...a, reasoning_effort: "high" }));
+  assert.notEqual(headKey(a), headKey({ ...a, messages: [{ role: "system", content: "You are omp." }, a.messages[1]] }));
+  assert.deepEqual(warmBody(a), { model: "m", reasoning_effort: "medium", tools, max_completion_tokens: 1, stream: false,
+    messages: [sys, { role: "user", content: "." }] });
+  const dir = (await import("node:fs")).mkdtempSync((await import("node:path")).join((await import("node:os")).tmpdir(), "warm-"));
+  writeWarmed(dir, 8000, 11, new Set(["k1"]));
+  assert.deepEqual([...readWarmed(dir, 8000, 11)], ["k1"]);
+  assert.deepEqual([...readWarmed(dir, 8000, 12)], []);
+  assert.deepEqual([...readWarmed(dir, 8001, 11)], []);
+});

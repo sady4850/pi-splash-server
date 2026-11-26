@@ -53,6 +53,13 @@ status bar shows what, how much and how fast). Loading takes about one to two
 minutes; the first start also calibrates the Neural Engine on M1/M2. The
 server outlives Pi, so the next Pi session finds it ready.
 
+The first session on a server sends one extra one-token request with Pi's
+system prompt and tools before its own. Splash keeps a state where that
+request ends, so every later new session starts from it: its first token
+comes in about 1 s instead of about 10 s on an M1 Pro. Splash 1.7.3 would not
+keep such a state for a system prompt and tools under 2,048 tokens, as Pi's
+are, unless the first message is a few words long.
+
 ## What it picks
 
 Qwen3.8-27B, by memory:

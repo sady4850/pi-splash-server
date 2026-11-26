@@ -6,6 +6,7 @@ import { DRAFT_GB, loadEntries, recommend, diskWarnings, isDownloaded } from "..
 import { bytes, bytesOnDisk, downloadLabel, downloadLines, downloadNotice, gb, planDownload } from "../src/download.ts";
 import { downloadProgress } from "../src/netbytes.ts";
 import { providerConfig, providerName } from "../src/provider.ts";
+import { headKey, opensSession, readWarmed, warm, writeWarmed } from "../src/prewarm.ts";
 import {
   DEFAULT_PORT, STATE_DIR, describe, findLauncher, latestRelease, launcherVersion, logPath, probe, readRecord,
   start, startedByUs, stop, versionOf, waitReady,
@@ -242,6 +243,21 @@ export default async function (pi: ExtensionAPI) {
   });
 
   pi.on("session_shutdown", async () => unfollow());
+
+  pi.on("before_provider_request", async (event: any, ctx: any) => {
+    const p = port();
+    if (ctx.model?.provider !== providerName(p) || !opensSession(event.payload)) return;
+    const pid = readRecord(p)?.pid;
+    if (!pid) return;
+    const key = headKey(event.payload);
+    const warmed = readWarmed(STATE_DIR, p, pid);
+    if (warmed.has(key)) return;
+    warmed.add(key);
+    writeWarmed(STATE_DIR, p, pid, warmed);
+    ctx.ui.setStatus("splash", "splash: caching the system prompt for new sessions");
+    await warm(p, event.payload, process.env.SPLASH_API_KEY);
+    ctx.ui.setStatus("splash", undefined);
+  });
 
   pi.registerCommand("splash", {
     description: "Local Splash server: status, doctor, start [model], stop, use, log, install, update",
