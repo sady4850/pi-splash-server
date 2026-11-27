@@ -208,6 +208,21 @@ when it differs from `<launcher> --version`, points to `/splash update`.
   server outlives Pi by default (load is 45-130 s, several Pi sessions share
   it); setting `stopOnExit` (off) changes that.
 - One server per port; a running Splash on the port is reused, not restarted.
+- A runtime record or `owned-P.json` counts as alive only when its pid's
+  command line contains "splash": a record left by a crashed server must not
+  make `/splash stop` signal whatever process got the pid later (0.1.6).
+- `/splash stop` before Splash wrote its first record (still downloading)
+  sends SIGINT to the process group of the owned pid, then SIGTERM to what is
+  left (background children of `sh` ignore SIGINT).
+- A server that lists models while `/status` says `ready: false`
+  (recovering) is not used: `probe` returns nothing until it is ready.
+- Switching the session reports failure (`setModel` false or no model in the
+  registry) instead of printing "Using Splash".
+- Prewarm (`before_provider_request`): skipped during a bench and when the
+  token count is unknown (timeout, old server); the head is remembered only
+  after the warm request succeeds; both requests use the turn's abort
+  signal, so Esc ends them; the server identity is pid + process start time,
+  so a restarted server with a reused pid is warmed again.
 
 ## Provider (`src/provider.ts`)
 

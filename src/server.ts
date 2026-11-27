@@ -1,5 +1,5 @@
 import { spawn, execFileSync } from "node:child_process";
-import { accessSync, closeSync, constants, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, rmSync, writeFileSync } from "node:fs";
+import { accessSync, appendFileSync, closeSync, constants, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { commandOutput } from "./mac.ts";
@@ -77,9 +77,27 @@ export function alive(pid: number): boolean {
   }
 }
 
-export function describe(record: Record | null): string {
+export function isSplash(pid: number) {
+  if (!alive(pid)) return false;
+  try {
+    return /splash/i.test(execFileSync("/bin/ps", ["-o", "command=", "-p", String(pid)], { encoding: "utf8" }));
+  } catch {
+    return false;
+  }
+}
+
+export function processId(pid: number): string | null {
+  try {
+    const started = execFileSync("/bin/ps", ["-o", "lstart=", "-p", String(pid)], { encoding: "utf8" }).trim();
+    return started ? `${pid}@${started}` : null;
+  } catch {
+    return null;
+  }
+}
+
+export function describe(record: Record | null, live = isSplash): string {
   if (!record) return "not running";
-  if (record.phase !== "failed" && !alive(record.pid)) return "not running";
+  if (record.phase !== "failed" && !live(record.pid)) return "not running";
   switch (record.phase) {
     case "warming":
       return record.warmup ? `warming ${record.warmup.steps_done}/${record.warmup.steps}` : "warming";
@@ -127,6 +145,7 @@ export async function probe(port: number, signal?: AbortSignal): Promise<(Listed
   const model = parseModels(await getJSON(`${base(port)}/v1/models`, signal));
   if (!model) return null;
   const status = await getJSON(`${base(port)}/status`, signal);
+  if (status?.ready === false) return null;
   return { ...model, instanceModel: typeof status?.instance?.model === "string" ? status.instance.model : undefined,
     laterSystem: parseLaterSystem(status) };
 }
@@ -144,6 +163,12 @@ export function start(o: StartOptions): number {
   const [cmd, ...rest] = o.keepAwake ? ["/usr/bin/caffeinate", "-i", ...args] : args;
   const env = { ...process.env, ...(o.stopWithPid ? { SPLASH_APP_PID: String(o.stopWithPid) } : {}) };
   const child = spawn(cmd, rest, { detached: true, stdio: ["ignore", out, out], env });
+  closeSync(out);
+  child.on("error", (e) => {
+    try {
+      appendFileSync(logPath(o.port), `pi-splash-server: could not run ${cmd}: ${e.message}\n`);
+    } catch {}
+  });
   child.unref();
   writeFileSync(join(STATE_DIR, `owned-${o.port}.json`), JSON.stringify({ pid: child.pid, model: o.model, flags: o.flags, started: new Date().toISOString() }));
   return child.pid!;
@@ -219,24 +244,48 @@ export async function waitReady(port: number, signal: AbortSignal, onPhase: (tex
     if (record?.phase === "ready" && (await probe(port))) return record;
     if (record?.phase === "failed") return record;
     const pid = ownedPid(port);
-    const owner = pid !== null && alive(pid);
+    const owner = pid !== null && isSplash(pid);
     if (!owner && (!record || !alive(record.pid)) && Date.now() - t0 > 5000) return record;
     await new Promise((r) => setTimeout(r, 1000));
   }
   return null;
 }
 
-export async function stop(port: number, record: Record): Promise<boolean> {
+async function signalAndWait(pid: number, target: number): Promise<boolean> {
   try {
-    process.kill(record.pid, "SIGINT");
+    process.kill(target, "SIGINT");
   } catch {
-    return true;
+    return !alive(pid);
   }
   for (let i = 0; i < 60; i++) {
-    if (!alive(record.pid)) break;
+    if (!alive(pid)) return true;
     await new Promise((r) => setTimeout(r, 1000));
   }
-  const gone = !alive(record.pid);
-  if (gone && existsSync(join(STATE_DIR, `owned-${port}.json`))) rmSync(join(STATE_DIR, `owned-${port}.json`));
+  return !alive(pid);
+}
+
+function forgetOwned(port: number) {
+  if (existsSync(join(STATE_DIR, `owned-${port}.json`))) rmSync(join(STATE_DIR, `owned-${port}.json`));
+}
+
+export async function stop(port: number, record: Record, live = isSplash): Promise<boolean> {
+  const gone = !live(record.pid) || (await signalAndWait(record.pid, record.pid));
+  if (gone) forgetOwned(port);
+  return gone;
+}
+
+export function startingOwned(port: number, live = isSplash): number | null {
+  const pid = ownedPid(port);
+  return pid !== null && live(pid) ? pid : null;
+}
+
+export async function stopOwned(port: number, pid: number): Promise<boolean> {
+  const gone = await signalAndWait(pid, -pid);
+  if (gone) {
+    try {
+      process.kill(-pid, "SIGTERM");
+    } catch {}
+    forgetOwned(port);
+  }
   return gone;
 }

@@ -102,8 +102,10 @@ test("provider matches splash-m1 pi", () => {
 
 test("record description", () => {
   assert.equal(describe(null), "not running");
-  assert.equal(describe({ pid: process.pid, phase: "warming", warmup: { steps_done: 2, steps: 5 } }), "warming 2/5");
+  assert.equal(describe({ pid: process.pid, phase: "warming", warmup: { steps_done: 2, steps: 5 } }, () => true), "warming 2/5");
   assert.equal(describe({ pid: 999999, phase: "ready" }), "not running");
+  assert.equal(describe({ pid: process.pid, phase: "ready" }, () => false), "not running");
+  assert.equal(describe({ pid: process.pid, phase: "ready" }, () => true), "ready");
   assert.equal(describe({ pid: 999999, phase: "failed", failure: { message: "out of memory" } }), "failed: out of memory");
 });
 
@@ -197,7 +199,7 @@ test("prewarm: first request of a session, head key, warm body", async () => {
   assert.equal(needsWarm(2063), true);
   assert.equal(needsWarm(2064), false);
   assert.equal(needsWarm(8090), false);
-  assert.equal(needsWarm(null), true);
+  assert.equal(needsWarm(null), false);
   const sys = { role: "system", content: "You are pi." };
   const tools = [{ type: "function", function: { name: "bash" } }];
   const a = { model: "m", stream: true, stream_options: { include_usage: true }, max_completion_tokens: 32768, reasoning_effort: "medium", tools,
@@ -217,6 +219,9 @@ test("prewarm: first request of a session, head key, warm body", async () => {
   assert.deepEqual([...readWarmed(dir, 8000, 11)], ["k1"]);
   assert.deepEqual([...readWarmed(dir, 8000, 12)], []);
   assert.deepEqual([...readWarmed(dir, 8001, 11)], []);
+  writeWarmed(dir, 8000, "11@Fri Nov 27 21:04:05 2026", new Set(["k2"]));
+  assert.deepEqual([...readWarmed(dir, 8000, "11@Fri Nov 27 21:04:05 2026")], ["k2"]);
+  assert.deepEqual([...readWarmed(dir, 8000, "11@Sat Nov 28 09:00:00 2026")], []);
 });
 
 test("bench median and range", async () => {
@@ -491,4 +496,21 @@ test("install: runs the fetched script detached with the pinned version, log to 
   assert.equal((await checkLauncher(join(dir, "noexec"))).version, null);
   assert.ok((await checkLauncher(join(dir, "noexec"))).error);
   clearInterval(keepAlive);
+});
+
+test("prewarm requests stop on the turn's abort signal", async () => {
+  const { createServer } = await import("node:http");
+  const { countTokens, warm } = await import("../src/prewarm.ts");
+  const server = createServer(() => {});
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+  const port = (server.address() as any).port;
+  const payload = { messages: [{ role: "system", content: "s" }, { role: "user", content: "u" }] };
+  const ac = new AbortController();
+  setTimeout(() => ac.abort(), 100);
+  const t = Date.now();
+  assert.equal(await countTokens(port, payload, undefined, ac.signal), null);
+  assert.equal(await warm(port, payload, undefined, ac.signal), false);
+  assert.ok(Date.now() - t < 2000);
+  server.closeAllConnections();
+  server.close();
 });

@@ -1,8 +1,8 @@
-import { execFile, execFileSync, spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { accessSync, closeSync, constants, existsSync, linkSync, mkdirSync, mkdtempSync, openSync, readFileSync, readlinkSync, readdirSync, renameSync, rmSync, statfsSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { alive, RUNTIME_DIR, STATE_DIR, versionOf } from "./server.ts";
+import { alive, isSplash, RUNTIME_DIR, STATE_DIR, versionOf } from "./server.ts";
 
 export const M1_REPO = "paperniuk/splash";
 export const INSTALL_LOG = join(STATE_DIR, "install.log");
@@ -148,15 +148,6 @@ export function releaseLock(lock: Lock, path = LOCK) {
 export function resetLog(path = INSTALL_LOG) {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, "");
-}
-
-export function isSplash(pid: number) {
-  if (!alive(pid)) return false;
-  try {
-    return /splash/i.test(execFileSync("/bin/ps", ["-o", "command=", "-p", String(pid)], { encoding: "utf8" }));
-  } catch {
-    return false;
-  }
 }
 
 function pidIn(file: string): number | null {

@@ -1,6 +1,6 @@
 {
   "name": "pi-splash-server",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Run a local Splash server from Pi, with the model and flags picked for your Mac (M1/M2 via splash-m1)",
   "type": "module",
   "license": "MIT",

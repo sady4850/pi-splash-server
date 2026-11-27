@@ -16,7 +16,7 @@ import {
 } from "../src/install.ts";
 import { countTokens, headKey, needsWarm, opensSession, readWarmed, warm, writeWarmed } from "../src/prewarm.ts";
 import {
-  DEFAULT_PORT, STATE_DIR, describe, latestRelease, resolveLauncher, launcherVersion, logPath, probe, readRecord,
+  DEFAULT_PORT, STATE_DIR, describe, latestRelease, processId, resolveLauncher, startingOwned, stopOwned, launcherVersion, logPath, probe, readRecord,
   type ServedModel, servesModel, start, startedByUs, stop, versionOf, waitReady,
 } from "../src/server.ts";
 
@@ -46,11 +46,13 @@ export default async function (pi: ExtensionAPI) {
     const served = known ?? await probe(p);
     if (!served) return null;
     pi.registerProvider(providerName(p), providerConfig(p, served) as any);
+    let switched = false;
     if (switchTo) {
       const model = ctx.modelRegistry.find(providerName(p), served.id);
-      if (model && !(await pi.setModel(model))) ctx.ui.notify("Could not switch to the Splash model", "error");
+      switched = !!model && (await pi.setModel(model));
+      if (!switched) ctx.ui.notify(`Could not switch to ${providerName(p)}/${served.id}; pick it with /model.`, "error");
     }
-    return served;
+    return { served, switched };
   }
 
   function launcher(): { name: string; path: string | null } {
@@ -122,8 +124,7 @@ export default async function (pi: ExtensionAPI) {
         ctx.ui.notify(`Port ${p} serves ${served.id}, not ${model}. Switch to what runs: /splash use. Or /splash stop, then /splash start ${model}.`, "error");
         return;
       }
-      await register(ctx, true, p, served);
-      ctx.ui.notify(`Splash already serves on port ${p}; using it.`, "info");
+      if ((await register(ctx, true, p, served))?.switched) ctx.ui.notify(`Splash already serves on port ${p}; using it.`, "info");
       return;
     }
     const running = starting(p);
@@ -227,8 +228,9 @@ export default async function (pi: ExtensionAPI) {
       if (abort.signal.aborted) return;
       ctx.ui.setStatus("splash", undefined);
       if (record?.phase === "ready") {
-        const served = await register(ctx, true);
-        ctx.ui.notify(`Splash ready: ${served?.id}, ${served?.context.toLocaleString()} context tokens (back: /model)`, "info");
+        const r = await register(ctx, true, p);
+        if (!r) ctx.ui.notify(`Splash on port ${p} said ready but does not answer. Log: ${logPath(p)}`, "error");
+        else if (r.switched) ctx.ui.notify(`Splash ready: ${r.served.id}, ${r.served.context.toLocaleString()} context tokens (back: /model)`, "info");
       } else {
         ctx.ui.notify(`Splash did not start: ${describe(record)}. Log: ${logPath(p)}`, "error");
       }
@@ -268,7 +270,11 @@ export default async function (pi: ExtensionAPI) {
   }
 
   function shareCmd(ctx: any) {
-    const latest = readdirSync(STATE_DIR).filter((f) => /^bench-.*\.json$/.test(f)).sort().pop();
+    let files: string[] = [];
+    try {
+      files = readdirSync(STATE_DIR);
+    } catch {}
+    const latest = files.filter((f) => /^bench-.*\.json$/.test(f)).sort().pop();
     if (!latest) return ctx.ui.notify("No bench results yet. Run /splash bench first.", "error");
     const url = shareUrl(JSON.parse(readFileSync(join(STATE_DIR, latest), "utf8")));
     execFile("/usr/bin/open", [url], (e) => {
@@ -282,8 +288,11 @@ export default async function (pi: ExtensionAPI) {
     const p = port();
     const record = readRecord(p);
     if (!record || describe(record) === "not running") {
-      ctx.ui.notify("No Splash server running.", "info");
-      return;
+      const launching = startingOwned(p);
+      if (!launching) return ctx.ui.notify("No Splash server running.", "info");
+      unfollow(ctx);
+      const stopped = await stopOwned(p, launching);
+      return ctx.ui.notify(stopped ? "Stopped the Splash start." : "The Splash start did not stop within 60 s.", stopped ? "info" : "error");
     }
     if (!startedByUs(p, record) && !(await ctx.ui.confirm("Stop Splash?", `The server on port ${p} was not started by pi-splash-server.`))) return;
     unfollow(ctx);
@@ -463,20 +472,33 @@ export default async function (pi: ExtensionAPI) {
     await bench?.done;
   });
 
+  const warming = new Set<string>();
+
   pi.on("before_provider_request", async (event: any, ctx: any) => {
     const p = port();
-    if (ctx.model?.provider !== providerName(p) || !opensSession(event.payload)) return;
+    if (ctx.model?.provider !== providerName(p) || !opensSession(event.payload) || bench) return;
     const pid = readRecord(p)?.pid;
-    if (!pid) return;
+    const server = pid ? processId(pid) : null;
+    if (!server) return;
     const key = headKey(event.payload);
-    const warmed = readWarmed(STATE_DIR, p, pid);
-    if (warmed.has(key)) return;
-    warmed.add(key);
-    writeWarmed(STATE_DIR, p, pid, warmed);
-    if (!needsWarm(await countTokens(p, event.payload, process.env.SPLASH_API_KEY))) return;
-    if (!bench) ctx.ui.setStatus("splash", "splash: caching the system prompt for new sessions");
-    await warm(p, event.payload, process.env.SPLASH_API_KEY);
-    if (!bench) ctx.ui.setStatus("splash", undefined);
+    if (readWarmed(STATE_DIR, p, server).has(key) || warming.has(key)) return;
+    const remember = () => {
+      try {
+        writeWarmed(STATE_DIR, p, server, readWarmed(STATE_DIR, p, server).add(key));
+      } catch {}
+    };
+    const signal: AbortSignal | undefined = ctx.signal;
+    const count = await countTokens(p, event.payload, process.env.SPLASH_API_KEY, signal);
+    if (count === null || signal?.aborted) return;
+    if (!needsWarm(count)) return remember();
+    warming.add(key);
+    try {
+      ctx.ui.setStatus("splash", "splash: caching the system prompt for new sessions");
+      if (await warm(p, event.payload, process.env.SPLASH_API_KEY, signal)) remember();
+    } finally {
+      warming.delete(key);
+      if (!following) ctx.ui.setStatus("splash", undefined);
+    }
   });
 
   pi.registerCommand("splash", {
@@ -511,8 +533,10 @@ export default async function (pi: ExtensionAPI) {
         case "stop":
           return stopCmd(ctx);
         case "use": {
-          const served = await register(ctx, true);
-          return ctx.ui.notify(served ? `Using Splash: ${served.id}, ${served.context.toLocaleString()} context tokens (back: /model)` : `No ready Splash server on port ${port()}.`, served ? "info" : "error");
+          const r = await register(ctx, true);
+          if (!r) return ctx.ui.notify(`No ready Splash server on port ${port()}.`, "error");
+          if (r.switched) ctx.ui.notify(`Using Splash: ${r.served.id}, ${r.served.context.toLocaleString()} context tokens (back: /model)`, "info");
+          return;
         }
         case "log": {
           let text = "";
