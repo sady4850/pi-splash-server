@@ -4,6 +4,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { runBench } from "../src/bench.ts";
 import { benchReport, shareUrl } from "../src/bench-report.ts";
+import { loadCatalog, startCompletions } from "../src/catalog.ts";
 import { detectMac, macosWarning, runtimeFor } from "../src/mac.ts";
 import { DRAFT_GB, loadEntries, recommend, diskWarnings, isDownloaded } from "../src/recommend.ts";
 import { bytes, bytesOnDisk, downloadLabel, downloadLines, downloadNotice, gb, planDownload } from "../src/download.ts";
@@ -143,10 +144,34 @@ export default async function (pi: ExtensionAPI) {
       ctx.ui.notify("No model given and none recommended for this Mac.", "error");
       return;
     }
-    const flags = c.flags ?? (chosen === pick?.model ? pick.flags : []);
+    const flags = c.flags ?? (chosen === pick?.model ? pick.flags : loadCatalog().some((m) => m.model === chosen) ? ["--language-only"] : []);
+    if (!(await confirmDownload(chosen, flags, ctx))) return ctx.ui.notify("Not started.", "info");
     const pid = start({ launcher: l.path, model: chosen, flags, port: p, keepAwake: c.keepAwake ?? true, stopWithPid: c.stopOnExit ? process.pid : undefined });
     ctx.ui.notify(`Starting ${[chosen, ...flags].join(" ")}. Progress in the status bar; Pi stays usable. Log: ${logPath(p)}`, "info");
     follow(p, pid, chosen, ctx, flags);
+  }
+
+  function draftFor(model: string) {
+    return loadEntries().find((e) => e.model === model)?.draft ?? loadCatalog().find((m) => m.model === model)?.draft;
+  }
+
+  async function confirmDownload(model: string, flags: string[], ctx: any) {
+    const mac = detectMac();
+    const entry = loadCatalog().find((m) => m.model === model);
+    const name = entry ? `${entry.family} ${entry.quant}` : model;
+    const free = (downloadGB: number) => [
+      `${mac.freeDiskGB.toFixed(1)} GB free on disk, about ${Math.max(0, mac.freeDiskGB - downloadGB).toFixed(1)} GB left after. Progress shows in the status bar; Pi stays usable.`,
+      ...diskWarnings(mac, downloadGB).map((w) => `Warning: ${w}`)].join("\n");
+    const plan = await planDownload(model, draftFor(model), flags.includes("--language-only")).catch(() => null);
+    if (plan) {
+      const missing = bytes(plan.flatMap((r) => r.missing));
+      const parts = plan.map((r) => `${r.draft ? "Draft" : "Model"} ${r.repo}${r.draft || !model.includes(":") ? "" : `:${model.split(":")[1]}`}: ${r.missing.length ? gb(bytes(r.missing)) : "already downloaded"}`);
+      return !missing || ctx.ui.confirm(`Download ${name}, ${gb(missing)}?`,
+        `From Hugging Face into ~/.cache/huggingface/hub:\n${parts.map((x) => `  ${x}`).join("\n")}\n${free(missing / 1e9)}`);
+    }
+    if (isDownloaded(model)) return true;
+    const size = entry?.weightsGB;
+    return ctx.ui.confirm(`Download ${name}?`, `${model}${size ? `, about ${(size + DRAFT_GB).toFixed(1)} GB with the draft` : ""} from Hugging Face into ~/.cache/huggingface/hub (Hugging Face not reachable now to check sizes).\n${free(size ? size + DRAFT_GB : 0)}`);
   }
 
   function starting(p: number) {
@@ -171,7 +196,7 @@ export default async function (pi: ExtensionAPI) {
     let progress: ReturnType<typeof downloadProgress> | null = null;
     try {
       if (model) {
-        const draft = loadEntries().find((e) => e.model === model)?.draft;
+        const draft = draftFor(model);
         const f = flags ?? config().flags ?? recommend(detectMac()).pick?.flags ?? [];
         const plan = await planDownload(model, draft, f.includes("--language-only")).catch(() => null);
         const missing = plan ? bytes(plan.flatMap((r) => r.missing)) : null;
@@ -208,6 +233,7 @@ export default async function (pi: ExtensionAPI) {
   }
 
   let bench: { abort: AbortController; done: Promise<void> } | null = null;
+  let mac: ReturnType<typeof detectMac> | undefined;
 
   async function benchmark(long: boolean, ctx: any, signal: AbortSignal) {
     const p = port();
@@ -308,7 +334,13 @@ export default async function (pi: ExtensionAPI) {
   pi.registerCommand("splash", {
     description: "Local Splash server: status, doctor, start [model], bench [--long | share], stop, use, log, install, update",
     getArgumentCompletions: (prefix: string) => {
-      const items = ["doctor", "start", "bench", "bench --long", "bench share", "stop", "use", "log", "install", "update"].filter((s) => s.startsWith(prefix)).map((s) => ({ value: s, label: s }));
+      const start = /^\s*start(?:\s+(\S*))?$/.exec(prefix);
+      if (start) {
+        mac ??= detectMac();
+        const items = startCompletions(start[1] ?? "", loadCatalog(), recommend(mac).pick, (m) => isDownloaded(m));
+        return items.length ? items : null;
+      }
+      const items = ["doctor", "start", "bench", "bench --long", "bench share", "stop", "use", "log", "install", "update"].filter((s) => s.startsWith(prefix)).map((s) => ({ value: s === "start" ? "start " : s, label: s }));
       return items.length ? items : null;
     },
     handler: async (args: string, ctx: any) => {

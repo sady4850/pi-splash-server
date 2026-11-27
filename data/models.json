@@ -1,0 +1,14 @@
+{
+  "source": "https://github.com/paperniuk/splash/blob/m1/docs/quants.md",
+  "measured": "KL to bf16 on wiki and chat text; decode time on M1 Pro relative to MLX 4-bit (percent, + is slower)",
+  "models": [
+    { "family": "Qwen3.8-27B", "quant": "GPTQ 4-bit", "model": "mlx-community/Qwen3.8-27B-GPTQ-4bit", "weightsGB": 15.13, "draft": "incoai/Qwen3.8-27B-DFlash2", "klWiki": 0.0399, "klChat": 0.1002, "decodePct": -0.2 },
+    { "family": "Qwen3.8-27B", "quant": "MLX 4-bit", "model": "mlx-community/Qwen3.8-27B-4bit", "weightsGB": 15.13, "draft": "incoai/Qwen3.8-27B-DFlash2", "klWiki": 0.0562, "klChat": 0.1906, "decodePct": 0 },
+    { "family": "Qwen3.8-27B", "quant": "Q4_0", "model": "unsloth/Qwen3.8-27B-GGUF:Q4_0", "weightsGB": 16.06, "draft": "incoai/Qwen3.8-27B-DFlash2", "klWiki": 0.0325, "klChat": 0.1412, "decodePct": 5.9 },
+    { "family": "Qwen3.8-27B", "quant": "UD-Q4_K_M", "model": "unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_M", "weightsGB": 16.46, "draft": "incoai/Qwen3.8-27B-DFlash2", "klWiki": 0.0144, "klChat": 0.0831, "decodePct": 11.1 },
+    { "family": "Qwen3.8-27B", "quant": "UD-Q5_K_S", "model": "unsloth/Qwen3.8-27B-GGUF:UD-Q5_K_S", "weightsGB": 18.67, "draft": "incoai/Qwen3.8-27B-DFlash2", "klWiki": 0.0065, "klChat": 0.0574, "decodePct": 20.2 },
+    { "family": "Qwen3.8-27B", "quant": "SLQ EAR98-Q5_K_S", "model": "kaitchup/Qwen3.8-27B-SLQ-GGUF:EAR98-Q5_K_S", "weightsGB": 18.88, "draft": "incoai/Qwen3.8-27B-DFlash2", "klWiki": 0.0104, "klChat": 0.0486, "decodePct": 19.7 },
+    { "family": "Qwen3.8-27B", "quant": "GSQ IQ3_S", "model": "ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF:IQ3_S", "weightsGB": 11.77, "draft": "incoai/Qwen3.8-27B-DFlash2", "klWiki": 0.0573, "klChat": 0.2121, "decodePct": 18.2 },
+    { "family": "Ternary-Bonsai-2-27B", "quant": "PQ2_0", "model": "prism-ml/Ternary-Bonsai-2-27B-gguf:PQ2_0", "weightsGB": 7, "draft": "incoai/Qwen3.8-27B-DFlash2", "needs": "needs wired-limit sysctl" }
+  ]
+}

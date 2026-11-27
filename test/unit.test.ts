@@ -276,6 +276,29 @@ test("bench share url prefills the issue form", async () => {
   assert.equal(url.searchParams.get("report"), benchReport(result));
 });
 
+test("start completions: pick first, then nearest bigger, nearer smaller, other models last", async () => {
+  const { loadCatalog, startCompletions } = await import("../src/catalog.ts");
+  const { loadEntries, recommend } = await import("../src/recommend.ts");
+  const catalog = loadCatalog();
+  for (const e of loadEntries()) assert.ok(catalog.some((m) => m.model === e.model), e.model);
+  const items = (gb: number, q = "") => startCompletions(q, catalog, recommend({ family: 1, memoryGB: gb }).pick, (m) => m.includes("GPTQ"));
+  const at32 = items(32);
+  assert.deepEqual(at32.map((i) => i.label), [
+    "Qwen3.8-27B · GPTQ 4-bit", "Qwen3.8-27B · Q4_0", "Qwen3.8-27B · UD-Q4_K_M", "Qwen3.8-27B · UD-Q5_K_S",
+    "Qwen3.8-27B · SLQ EAR98-Q5_K_S", "Qwen3.8-27B · MLX 4-bit", "Qwen3.8-27B · GSQ IQ3_S", "Ternary-Bonsai-2-27B · PQ2_0",
+  ]);
+  for (const i of at32) assert.ok(i.label.length <= 30, i.label);
+  assert.equal(at32[0].value, "start mlx-community/Qwen3.8-27B-GPTQ-4bit");
+  assert.equal(at32[0].description, "recommended · downloaded · 15.1 GB · others compared to this");
+  assert.equal(at32[2].description, "needs download · +1.3 GB · KL wiki -64%, chat -17% · decode 11% slower");
+  assert.equal(at32[5].description, "needs download · same size · KL wiki +41%, chat +90% · decode same");
+  assert.equal(items(64)[6].description, "needs download · -6.9 GB · KL wiki ×8.8, chat ×3.7 · decode 2% faster");
+  assert.equal(items(16)[0].label, "Ternary-Bonsai-2-27B · PQ2_0");
+  assert.deepEqual(items(32, "gsq").map((i) => i.label), ["Qwen3.8-27B · GSQ IQ3_S"]);
+  assert.deepEqual(items(32, "unsloth").length, 3);
+  assert.deepEqual(items(32, "nothing"), []);
+});
+
 test("bench response preserves server timings, cache hits and optional draft counts", async () => {
   const { parseMeasurement } = await import("../src/bench.ts");
   const usage = { prompt_tokens: 8192, completion_tokens: 128, prompt_tokens_details: { cached_tokens: 8176 } };

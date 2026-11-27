@@ -72,11 +72,19 @@ In Pi:
 /splash update         same for a newer runtime release
 ```
 
-To start a different model, run `/splash stop` first.
+While you type `/splash start`, Pi suggests the measured Qwen3.8-27B quants
+(type part of a name, like `q5` or `iq3`, to filter) with size,
+which one is recommended for which memory, what is already downloaded, and
+how each trades closeness to bf16 against speed (numbers in
+[quants.md](https://github.com/paperniuk/splash/blob/m1/docs/quants.md)). To
+start a different model, run `/splash stop` first. Models from the list start
+with `--language-only` (no vision weights); the memory flags in the table below
+apply only to the model recommended for your Mac.
 
 `start` and `use` switch the session to the Splash model; `/model` switches
-back, the server keeps running. The first start downloads the model (the
-status bar shows what, how much and how fast). Loading takes about one to two
+back, the server keeps running. When files are missing, `start` says how much
+it will download and how much disk is free, and asks first; the status bar
+then shows what, how much and how fast. Loading takes about one to two
 minutes; the first start also calibrates the Neural Engine on M1/M2. The
 server outlives Pi, so the next Pi session finds it ready.
 
