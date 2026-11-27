@@ -1,5 +1,5 @@
 import { spawn, execFileSync } from "node:child_process";
-import { closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, rmSync, writeFileSync } from "node:fs";
+import { accessSync, closeSync, constants, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { commandOutput } from "./mac.ts";
@@ -18,11 +18,26 @@ export type Record = {
 export type ServedModel = { id: string; context: number; inputModalities: string[]; laterSystem: boolean };
 type ListedModel = ServedModel & { ids: string[] };
 
-export function findLauncher(name: string): string | null {
+export function findLauncher(name: string, dirs: string[] = [], isExecutable = executable): string | null {
   try {
-    return execFileSync("/usr/bin/which", [name], { encoding: "utf8" }).trim() || null;
+    const found = execFileSync("/usr/bin/which", [name], { encoding: "utf8" }).trim();
+    if (found) return found;
+  } catch {}
+  return dirs.map((d) => join(d, name)).find(isExecutable) ?? null;
+}
+
+export function resolveLauncher(configured: string | undefined, name: string, dirs: string[], isExecutable = executable): string | null {
+  if (!configured) return findLauncher(name, dirs, isExecutable);
+  if (!configured.includes("/")) return findLauncher(configured, [], isExecutable);
+  return isExecutable(configured) ? configured : null;
+}
+
+function executable(path: string) {
+  try {
+    accessSync(path, constants.X_OK);
+    return true;
   } catch {
-    return null;
+    return false;
   }
 }
 

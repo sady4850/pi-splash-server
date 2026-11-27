@@ -1,6 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { execFile } from "node:child_process";
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { runBench } from "../src/bench.ts";
 import { benchReport, shareUrl } from "../src/bench-report.ts";
@@ -10,9 +10,13 @@ import { DRAFT_GB, loadEntries, recommend, diskWarnings, isDownloaded } from "..
 import { bytes, bytesOnDisk, downloadLabel, downloadLines, downloadNotice, gb, planDownload } from "../src/download.ts";
 import { downloadProgress } from "../src/netbytes.ts";
 import { providerConfig, providerName } from "../src/provider.ts";
+import {
+  INSTALL_LOG, M1_REPO, appDir, archiveBytes, binDir, checkLauncher, currentVersion, failureOf, fetchScript, freeBytes, installPhase,
+  installing, launcherDirs, liveServers, neededBytes, readLog, releaseLock, resetLog, runScript, scriptUrl, takeLock, updateLock, type Lock,
+} from "../src/install.ts";
 import { countTokens, headKey, needsWarm, opensSession, readWarmed, warm, writeWarmed } from "../src/prewarm.ts";
 import {
-  DEFAULT_PORT, STATE_DIR, describe, findLauncher, latestRelease, launcherVersion, logPath, probe, readRecord,
+  DEFAULT_PORT, STATE_DIR, describe, latestRelease, resolveLauncher, launcherVersion, logPath, probe, readRecord,
   type ServedModel, servesModel, start, startedByUs, stop, versionOf, waitReady,
 } from "../src/server.ts";
 
@@ -52,7 +56,7 @@ export default async function (pi: ExtensionAPI) {
   function launcher(): { name: string; path: string | null } {
     const c = config();
     const name = runtimeFor(detectMac().family) ?? "splash";
-    return { name, path: c.launcher ?? findLauncher(name) };
+    return { name, path: resolveLauncher(c.launcher, name, launcherDirs()) };
   }
 
   async function doctor(): Promise<string[]> {
@@ -64,13 +68,16 @@ export default async function (pi: ExtensionAPI) {
       l.path ? latestRelease(l.name) : Promise.resolve(null),
       pick ? planDownload(pick.model, pick.draft, pick.flags.includes("--language-only")).catch((e: Error) => e) : Promise.resolve(null),
     ]);
+    const busy = installing();
     const lines = [
       `${mac.chip}, ${mac.memoryGB} GB, macOS ${mac.macos}, ${mac.freeDiskGB.toFixed(1)} GB free`,
-      !l.path
+      busy
+        ? installLine(busy)
+        : !l.path
         ? `Runtime: ${runtime ?? "none"} not installed. Install: /splash install`
         : `Runtime: ${l.name} ${installed ?? "?"}${latest === installed ? ", latest" : ""} (${l.path})`,
     ];
-    if (l.path && latest && latest !== installed) lines.push(`  ${latest} is out. Update: /splash update`);
+    if (!busy && l.path && latest && latest !== installed) lines.push(`  ${latest} is out. Update: /splash update`);
     let downloadGB = 0;
     if (!pick) lines.push("No measured model fits this Mac yet.");
     else {
@@ -99,7 +106,9 @@ export default async function (pi: ExtensionAPI) {
     const lines = [`Port ${p}: ${describe(record)}${record && startedByUs(p, record) ? " (started by pi-splash-server)" : ""}`];
     if (served) lines.push(`Model ${served.id}, ${served.context.toLocaleString()} context tokens`);
     const phase = describe(record);
+    const busy = installing();
     if (served && ctx.model?.provider !== providerName(p)) lines.push("Switch to it: /splash use");
+    else if (busy) lines.push(installLine(busy));
     else if (!served && (phase === "not running" || phase.startsWith("failed"))) lines.push("Start one: /splash start");
     else if (served && record && startedByUs(p, record)) lines.push("Stop it: /splash stop");
     ctx.ui.notify(lines.join("\n"), "info");
@@ -132,6 +141,7 @@ export default async function (pi: ExtensionAPI) {
       }
       return;
     }
+    if (refuseWhileInstalling(ctx)) return;
     const l = launcher();
     if (!l.path) {
       ctx.ui.notify((await doctor()).join("\n"), "error");
@@ -146,7 +156,14 @@ export default async function (pi: ExtensionAPI) {
     }
     const flags = c.flags ?? (chosen === pick?.model ? pick.flags : loadCatalog().some((m) => m.model === chosen) ? ["--language-only"] : []);
     if (!(await confirmDownload(chosen, flags, ctx))) return ctx.ui.notify("Not started.", "info");
-    const pid = start({ launcher: l.path, model: chosen, flags, port: p, keepAwake: c.keepAwake ?? true, stopWithPid: c.stopOnExit ? process.pid : undefined });
+    const gate = lockOrSay("start", chosen, ctx);
+    if (!gate) return;
+    let pid: number;
+    try {
+      pid = start({ launcher: l.path, model: chosen, flags, port: p, keepAwake: c.keepAwake ?? true, stopWithPid: c.stopOnExit ? process.pid : undefined });
+    } finally {
+      releaseLock(gate);
+    }
     ctx.ui.notify(`Starting ${[chosen, ...flags].join(" ")}. Progress in the status bar; Pi stays usable. Log: ${logPath(p)}`, "info");
     follow(p, pid, chosen, ctx, flags);
   }
@@ -280,26 +297,155 @@ export default async function (pi: ExtensionAPI) {
     ctx.ui.notify(`${what}: the command is in the editor, press Enter to run it (or copy it to a terminal). Then /splash doctor.\n${command}`, "info");
   }
 
+  function installLine(lock: Lock) {
+    return lock.kind === "start"
+      ? `Another session is starting Splash (${lock.tag}) right now; try again in a moment.`
+      : `Runtime: installing splash-m1 ${lock.tag}: ${installPhase(readLog())}. Log: ${INSTALL_LOG}`;
+  }
+
+  function refuseWhileInstalling(ctx: any) {
+    const busy = installing();
+    if (busy) ctx.ui.notify(busy.kind === "start" ? installLine(busy) : `splash-m1 ${busy.tag} is being installed (${installPhase(readLog())}). Start when it is done: /splash start`, "error");
+    return !!busy;
+  }
+
+  function lockOrSay(kind: Lock["kind"], tag: string, ctx: any): Lock | null {
+    try {
+      const lock = takeLock(kind, tag);
+      if (!lock && !refuseWhileInstalling(ctx)) ctx.ui.notify("Another session holds the Splash install lock; try again in a moment.", "error");
+      return lock;
+    } catch (e: any) {
+      ctx.ui.notify(`Could not create the lock in ${STATE_DIR}: ${e?.message ?? e}`, "error");
+      return null;
+    }
+  }
+
+  let install: { stop: () => void } | null = null;
+  let closed = false;
+
   async function installCmd(update: boolean, ctx: any) {
     const runtime = runtimeFor(detectMac().family);
     if (!runtime) {
       ctx.ui.notify("Splash runs on Apple silicon only.", "error");
       return;
     }
+    const busy = installing();
+    if (busy) return ctx.ui.notify(installLine(busy), busy.kind === "start" ? "error" : "info");
     const l = launcher();
-    if (!l.path) return offer(INSTALL[runtime], `Install ${runtime}`, ctx);
-    const installed = versionOf(await launcherVersion(l.path));
-    if (!update) {
+    if (runtime === "splash" && !l.path) return offer(INSTALL.splash, "Install splash", ctx);
+    const installed = l.path ? versionOf(await launcherVersion(l.path)) : null;
+    if (l.path && !update) {
       ctx.ui.notify(`${l.name} ${installed ?? "?"} is installed (${l.path}). Newer release: /splash update`, "info");
       return;
     }
-    const latest = await latestRelease(l.name);
-    if (latest && latest === installed) {
+    const latest = await latestRelease(runtime);
+    if (l.path && latest && latest === installed) {
       ctx.ui.notify(`${l.name} ${installed} is the latest release.`, "info");
       return;
     }
-    const running = await probe(port());
-    offer(UPDATE[l.name as keyof typeof UPDATE], `Update ${l.name} ${installed ?? "?"} to ${latest ?? "the latest release"}${running ? "; restart the server afterwards (/splash stop, /splash start)" : ""}`, ctx);
+    if (runtime === "splash") {
+      const running = await probe(port());
+      return offer(UPDATE.splash, `Update splash ${installed ?? "?"} to ${latest ?? "the latest release"}${running ? "; restart the server afterwards (/splash stop, /splash start)" : ""}`, ctx);
+    }
+    const macos = macosWarning(runtime, detectMac().macos);
+    if (macos) return ctx.ui.notify(macos, "error");
+    if (!latest) return ctx.ui.notify(`GitHub did not answer with the latest splash-m1 release. Try again, or run in a terminal:\n${INSTALL["splash-m1"]}`, "error");
+    if (refuseWhileServing(ctx, update)) return;
+    if (!ctx.hasUI) {
+      process.stderr.write(`splash-m1 ${latest}: run in a terminal: ${INSTALL["splash-m1"]}\n`);
+      return;
+    }
+
+    const app = appDir();
+    const bin = binDir();
+    const size = await archiveBytes(latest);
+    const free = freeBytes(app);
+    if (size && free !== null && free < neededBytes(size)) {
+      return ctx.ui.notify(`Installing splash-m1 needs about ${gb(neededBytes(size))} free on disk, ${gb(free)} is free.`, "error");
+    }
+    const onPath = (process.env.PATH ?? "").split(":").includes(bin);
+    const ok = await ctx.ui.confirm(
+      update ? `Update splash-m1 ${installed ?? "?"} to ${latest}?` : `Install splash-m1 ${latest}?`,
+      [
+        `Runs the official installer of ${M1_REPO} ${latest}:`,
+        `  ${scriptUrl(latest)}`,
+        `It downloads ${size ? `${Math.round(size / 1e6)} MB` : "the release archive"}, checks its SHA-256, unpacks it into`,
+        `  ${join(app, latest)}`,
+        `and writes ${join(bin, "splash-m1")}${onPath ? "" : " (not on PATH: Pi finds it there, a terminal does not)"}.`,
+        "Progress in the status bar; Pi stays usable.",
+      ].join("\n"),
+      ctx.mode === "rpc" ? { timeout: 120000 } : undefined,
+    );
+    if (ok !== true) return ctx.ui.notify("Not installed.", "info");
+
+    const lock = lockOrSay("install", latest, ctx);
+    if (!lock) return;
+    let handedOff = false;
+    try {
+      resetLog();
+      if (refuseWhileServing(ctx, update)) return;
+      const now = launcher();
+      if (now.path && versionOf(await launcherVersion(now.path)) === latest) return ctx.ui.notify(`splash-m1 ${latest} is already installed (${now.path}).`, "info");
+      let script: string;
+      try {
+        script = await fetchScript(scriptUrl(latest));
+      } catch (e: any) {
+        return ctx.ui.notify(`Could not download the installer: ${e?.message ?? e}\nRun in a terminal instead: ${INSTALL["splash-m1"]}`, "error");
+      }
+      if (closed) return;
+      const run = runScript(script, latest);
+      handedOff = true;
+      followInstall(run.done, lock, latest, bin, update, ctx);
+      updateLock({ ...lock, child: run.child });
+    } finally {
+      if (!handedOff) releaseLock(lock);
+    }
+  }
+
+  function refuseWhileServing(ctx: any, update: boolean) {
+    const ports = liveServers();
+    if (!ports.length) return false;
+    const which = ports.length === 1 ? `port ${ports[0]}` : `ports ${ports.join(", ")}`;
+    ctx.ui.notify(`Splash runs on ${which}. Stop it first${ports.includes(port()) ? " (/splash stop)" : ""}: the installer replaces the files a running server loads from. Then /splash ${update ? "update" : "install"}.`, "error");
+    return true;
+  }
+
+  function followInstall(done: Promise<number | null>, lock: Lock, tag: string, bin: string, update: boolean, ctx: any) {
+    let live = true;
+    const show = () => {
+      try {
+        if (live) ctx.ui.setStatus("splash-install", `splash: installing ${tag}: ${installPhase(readLog())}`);
+      } catch {}
+    };
+    const timer = setInterval(show, 1000);
+    install = { stop: () => { live = false; clearInterval(timer); } };
+    queueMicrotask(show);
+    done.then(async (code) => {
+      clearInterval(timer);
+      releaseLock(lock);
+      if (!live) return;
+      install = null;
+      const target = join(bin, "splash-m1");
+      const check = existsSync(target) ? await checkLauncher(target) : { version: null, error: `${target} is missing` };
+      try {
+        ctx.ui.setStatus("splash-install", undefined);
+        if (code === 0 && check.version === tag) {
+          const lines = [`splash-m1 ${tag} ${update ? "updated" : "installed"} (${target}). Next: /splash start`];
+          const used = launcher().path;
+          if (used !== target) {
+            const other = used ? (await checkLauncher(used)).version : null;
+            if (other !== tag) lines.push(`Warning: /splash start will use ${used ?? "nothing"} (${other ?? "unknown version"}), ${config().launcher ? "\"launcher\" in ~/.pi/agent/splash/config.json" : "found first on PATH"}. Remove it or point "launcher" at ${target}.`);
+          }
+          ctx.ui.notify(lines.join("\n"), lines.length > 1 ? "error" : "info");
+        } else {
+          const cur = currentVersion();
+          const state = cur === tag
+            ? `The ${tag} files are in place, but ${target} --version ${check.error ? `failed: ${check.error}` : `reports ${check.version}`}.`
+            : `Installed runtime unchanged (${cur ?? "none"}).`;
+          ctx.ui.notify(`splash-m1 install failed: ${failureOf(readLog()) ?? `exit ${code}`}\n${state}\nLog: ${INSTALL_LOG}\nRetry: /splash ${update ? "update" : "install"}, or in a terminal: ${INSTALL["splash-m1"]}`, "error");
+        }
+      } catch {}
+    });
   }
 
   pi.on("session_start", async (_event, ctx) => {
@@ -310,6 +456,8 @@ export default async function (pi: ExtensionAPI) {
   });
 
   pi.on("session_shutdown", async () => {
+    closed = true;
+    install?.stop();
     unfollow();
     bench?.abort.abort();
     await bench?.done;

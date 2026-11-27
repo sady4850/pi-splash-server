@@ -352,3 +352,143 @@ test("bench sizes the full nonce-prefixed prompt with the model's counter", asyn
   }
   await assert.rejects(buildPrompt(source, "bench 1", 1024, async () => 0), /input_tokens/);
 });
+
+test("install: bin dir, launcher fallback dirs", async () => {
+  const { binDir, launcherDirs } = await import("../src/install.ts");
+  const { findLauncher } = await import("../src/server.ts");
+  const { mkdtempSync, writeFileSync } = await import("node:fs");
+  const { homedir, tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  assert.equal(binDir({ SPLASH_BIN_DIR: "/x/bin" }), "/x/bin");
+  assert.equal(binDir({}, () => false), join(homedir(), ".local/bin"));
+  assert.deepEqual(launcherDirs({}), ["/opt/homebrew/bin", join(homedir(), ".local/bin")]);
+  assert.equal(launcherDirs({ SPLASH_BIN_DIR: "/x/bin" })[0], "/x/bin");
+  const dir = mkdtempSync(join(tmpdir(), "launcher-"));
+  writeFileSync(join(dir, "splash-test-launcher"), "#!/bin/sh\n", { mode: 0o755 });
+  writeFileSync(join(dir, "splash-test-plain"), "", { mode: 0o644 });
+  assert.equal(findLauncher("splash-test-launcher", [dir]), join(dir, "splash-test-launcher"));
+  assert.equal(findLauncher("splash-test-plain", [dir]), null);
+  assert.equal(findLauncher("splash-test-launcher"), null);
+  const { resolveLauncher } = await import("../src/server.ts");
+  const exe = (p: string) => p === "/bin/sh" || p === join(dir, "splash-test-launcher");
+  assert.equal(resolveLauncher(undefined, "splash-test-launcher", [dir], exe), join(dir, "splash-test-launcher"));
+  assert.equal(resolveLauncher("/bin/sh", "x", [dir], exe), "/bin/sh");
+  assert.equal(resolveLauncher("/nope/splash-m1", "x", [dir], exe), null);
+  assert.equal(resolveLauncher("sh", "x", [dir]), "/bin/sh");
+});
+
+test("install: phase and failure from the installer log", async () => {
+  const { installPhase, progressOf, failureOf } = await import("../src/install.ts");
+  assert.equal(installPhase(""), "starting");
+  const downloading = "Downloading splash-1.7.3-m1-arm64-macos26.tar.gz ...\n";
+  assert.equal(installPhase(downloading), "downloading");
+  const bar = `${downloading}##O=#  #\r###           4.2%\r########          37.5%`;
+  assert.equal(progressOf(bar), 37.5);
+  assert.equal(installPhase(bar), "downloading 38%");
+  assert.equal(installPhase(`${bar}\r############# 100.0%\n`), "checking and unpacking");
+  assert.equal(installPhase(`${bar}\r100.0%\nSplash 1.7.3-m1\n\nInstalled. Start a model\n`), "done");
+  assert.equal(failureOf(`${bar}\nsplash-m1 install: checksum mismatch (expected a, got b)\n`), "checksum mismatch (expected a, got b)");
+  assert.equal(failureOf("curl: (6) Could not resolve host\n"), "curl: (6) Could not resolve host");
+  assert.equal(failureOf(""), null);
+});
+
+test("install: lock is exclusive, never empty, stale when old or both pids are gone", async () => {
+  const { takeLock, readLock, releaseLock, updateLock, lockHeld, installing } = await import("../src/install.ts");
+  const { mkdtempSync, readdirSync, writeFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = mkdtempSync(join(tmpdir(), "lock-"));
+  const path = join(dir, "install.lock");
+  const lock = takeLock("install", "1.7.3-m1", path);
+  assert.equal(readLock(path)?.tag, "1.7.3-m1");
+  assert.equal(takeLock("start", "m", path), null);
+  assert.equal(installing(path)?.kind, "install");
+  releaseLock({ ...lock!, started: "other" }, path);
+  assert.ok(readLock(path));
+  releaseLock(lock!, path);
+  assert.equal(readLock(path), null);
+  const now = new Date().toISOString();
+  const dead = 2 ** 22 + 12345;
+  writeFileSync(path, JSON.stringify({ pid: dead, child: process.pid, kind: "install", tag: "a", started: now }));
+  assert.equal(takeLock("install", "b", path), null);
+  writeFileSync(path, JSON.stringify({ pid: dead, child: dead, kind: "install", tag: "a", started: now }));
+  assert.equal(installing(path), null);
+  const taken = takeLock("install", "b", path);
+  assert.equal(taken?.tag, "b");
+  updateLock({ ...taken!, child: 42 }, path);
+  assert.equal(readLock(path)?.child, 42);
+  assert.deepEqual(readdirSync(dir), ["install.lock"]);
+  const old = new Date(Date.now() - 2 * 3600e3).toISOString();
+  assert.equal(lockHeld({ pid: process.pid, kind: "install", tag: "x", started: old }), false);
+  writeFileSync(path, JSON.stringify({ pid: process.pid, kind: "install", tag: "x", started: old }));
+  assert.equal(takeLock("start", "m", path)?.kind, "start");
+  assert.equal(lockHeld({ pid: 1, kind: "install", tag: "x", started: now }, (p) => p === 2), false);
+  assert.equal(lockHeld({ pid: 1, child: 2, kind: "install", tag: "x", started: now }, (p) => p === 2), true);
+  assert.equal(lockHeld({ pid: 1, kind: "install", tag: "x", started: "garbage" }, () => true), false);
+});
+
+test("install: concurrent lock takers, exactly one wins", async () => {
+  const { mkdtempSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { spawn } = await import("node:child_process");
+  const path = join(mkdtempSync(join(tmpdir(), "lockrace-")), "install.lock");
+  const mod = new URL("../src/install.ts", import.meta.url).href;
+  const code = `const { takeLock } = await import(${JSON.stringify(mod)}); const at = Number(process.argv[1]); while (Date.now() < at); const l = takeLock("install", "t", ${JSON.stringify(path)}); process.stdout.write(l ? "won" : "lost"); setTimeout(() => {}, 1500);`;
+  const at = Date.now() + 1500;
+  const runs = Array.from({ length: 6 }, () => new Promise<string>((resolve) => {
+    const c = spawn(process.execPath, ["--input-type=module", "-e", code, String(at)]);
+    let out = "";
+    c.stdout.on("data", (d) => (out += d));
+    c.on("exit", () => resolve(out));
+  }));
+  const results = await Promise.all(runs);
+  assert.equal(results.filter((r) => r === "won").length, 1, results.join(","));
+});
+
+test("install: live servers from runtime records and owned starts", async () => {
+  const { liveServers } = await import("../src/install.ts");
+  const { mkdtempSync, writeFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const runtime = mkdtempSync(join(tmpdir(), "rt-"));
+  const state = mkdtempSync(join(tmpdir(), "st-"));
+  writeFileSync(join(runtime, "serve-8000.json"), JSON.stringify({ pid: 10, phase: "ready" }));
+  writeFileSync(join(runtime, "serve-8001.json"), JSON.stringify({ pid: 11, phase: "failed" }));
+  writeFileSync(join(runtime, "serve-8002.json"), "{broken");
+  writeFileSync(join(state, "owned-8003.json"), JSON.stringify({ pid: 12, model: "m" }));
+  writeFileSync(join(state, "owned-8000.json"), JSON.stringify({ pid: 10, model: "m" }));
+  writeFileSync(join(state, "bench-1.json"), JSON.stringify({ pid: 10 }));
+  assert.deepEqual(liveServers(runtime, state, (pid) => pid === 12), [8003]);
+  assert.deepEqual(liveServers(runtime, state, (pid) => pid === 10 || pid === 12), [8000, 8003]);
+  assert.deepEqual(liveServers(runtime, state, () => false), []);
+  assert.deepEqual(liveServers(join(runtime, "nope"), join(state, "nope")), []);
+});
+
+test("install: runs the fetched script detached with the pinned version, log to a file", async () => {
+  const { runScript, readLog, checkLauncher } = await import("../src/install.ts");
+  const { mkdtempSync, readdirSync, writeFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = mkdtempSync(join(tmpdir(), "run-"));
+  const log = join(dir, "install.log");
+  const keepAlive = setInterval(() => {}, 100);
+  const script = `#!/bin/sh\necho "Downloading v=$SPLASH_M1_VERSION"\nprintf '###  50.0%%\\r' >&2\nmkdir -p "$SPLASH_BIN_DIR"\nprintf '#!/bin/sh\\necho Splash %s\\n' "$SPLASH_M1_VERSION" > "$SPLASH_BIN_DIR/splash-m1"\nchmod 755 "$SPLASH_BIN_DIR/splash-m1"\necho Installed.\n`;
+  const tmp = mkdtempSync(join(tmpdir(), "runtmp-"));
+  const run = runScript(script, "9.9.9-m1", { PATH: process.env.PATH, SPLASH_BIN_DIR: join(dir, "bin") }, log, tmp);
+  assert.ok(run.child > 0);
+  assert.equal(await run.done, 0);
+  const text = readLog(log);
+  assert.match(text, /Downloading v=9\.9\.9-m1/);
+  assert.match(text, /50\.0%/);
+  assert.deepEqual(await checkLauncher(join(dir, "bin/splash-m1")), { version: "9.9.9-m1", error: null });
+  assert.deepEqual(readdirSync(tmp), []);
+  const failing = runScript("#!/bin/sh\necho 'splash-m1 install: download failed: x' >&2\nexit 1\n", "9.9.9-m1", { PATH: process.env.PATH }, log, tmp);
+  assert.equal(await failing.done, 1);
+  writeFileSync(join(dir, "lies"), "#!/bin/sh\necho Splash 9.9.9-m1\nexit 3\n", { mode: 0o755 });
+  assert.equal((await checkLauncher(join(dir, "lies"))).version, null);
+  writeFileSync(join(dir, "noexec"), "#!/bin/sh\n", { mode: 0o644 });
+  assert.equal((await checkLauncher(join(dir, "noexec"))).version, null);
+  assert.ok((await checkLauncher(join(dir, "noexec"))).error);
+  clearInterval(keepAlive);
+});

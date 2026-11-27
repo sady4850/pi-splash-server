@@ -38,10 +38,16 @@ exists only on the Splash side.
 ## Requirements
 
 - Apple silicon Mac. M1/M2 need macOS 26.4 or newer (splash-m1).
-- The Splash runtime. `/splash install` puts the install command for your
-  chip into Pi's editor as a `!!` shell line; you see it and press Enter:
-  - M1/M2: `curl -fsSL https://github.com/paperniuk/splash/releases/latest/download/install-m1.sh | sh`
-  - M3 and newer: `brew install incoai/tap/splash`
+- The Splash runtime, `/splash install`:
+  - M1/M2: after you confirm, it runs the official splash-m1 installer of the
+    latest release (`install-m1.sh` from paperniuk/splash) in the background,
+    with progress in the status bar. The result is the same as installing by
+    hand: `~/Library/Application Support/Splash-M1/<version>` and a
+    `splash-m1` command in `/opt/homebrew/bin` or `~/.local/bin`, so the
+    terminal and Pi share one install. By hand:
+    `curl -fsSL https://github.com/paperniuk/splash/releases/latest/download/install-m1.sh | sh`
+  - M3 and newer: it puts `brew install incoai/tap/splash` into Pi's editor as
+    a `!!` shell line; you see it and press Enter.
 - Disk for the model: 11-23 GB depending on the tier (weights plus a 3.9 GB
   draft model), and some more for Splash's SSD prompt cache (~25 GB free is
   comfortable).
@@ -68,7 +74,7 @@ In Pi:
 /splash bench share    open a prefilled GitHub issue with the last bench report
 /splash stop           stop the server
 /splash log            last lines of the server log
-/splash install        put the runtime's install command into the editor
+/splash install        install the runtime (M1/M2 directly, M3+ via a brew line in the editor)
 /splash update         same for a newer runtime release
 ```
 
@@ -87,6 +93,11 @@ it will download and how much disk is free, and asks first; the status bar
 then shows what, how much and how fast. Loading takes about one to two
 minutes; the first start also calibrates the Neural Engine on M1/M2. The
 server outlives Pi, so the next Pi session finds it ready.
+
+On M1/M2, `/splash update` refuses while a Splash server runs: the installer
+replaces the files a running server loads from. Stop it, update, start again.
+Only one install runs at a time, across Pi and omp sessions; the others show
+its progress, and `/splash start` refuses until it is done.
 
 The first session on a server sends one extra one-token request with Pi's
 system prompt and tools before its own. Splash keeps a state where that

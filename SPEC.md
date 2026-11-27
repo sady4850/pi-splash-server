@@ -27,8 +27,9 @@ splash screen for Pi (mavam/pi-splash), unrelated.
 
 - No own inference, no fork of Splash or Pi. The package drives the installed
   `splash-m1` or `splash` launcher.
-- No installing Splash itself: the package puts the one-line install for the
-  chip into the editor and the user runs it.
+- No own copy of Splash: on M1/M2 the package runs the official
+  `install-m1.sh` after a confirm, into the same place a manual install goes.
+  On M3+ it puts the brew line into the editor and the user runs it.
 - No change to Pi's prompts, tools or compaction.
 
 ## Commands
@@ -43,8 +44,8 @@ All under one command, `/splash`, with argument completion.
 | `/splash stop` | Stop the server. Asks first when the package did not start it. |
 | `/splash use` | Register the running server as the provider and switch the session to it (for a server started outside Pi). |
 | `/splash log` | Last lines of the server log the package wrote. |
-| `/splash install` | Puts the runtime's install command (`curl ... install-m1.sh \| sh` or `brew install incoai/tap/splash`) into the editor as a `!!` line (Pi runs it without sending output to the model). The user sees it and presses Enter; the package runs nothing itself. Says so when the runtime is already there. |
-| `/splash update` | Same with the update command, when `releases/latest` differs from `<launcher> --version`. Reminds to restart a running server. |
+| `/splash install` | M1/M2: runs the official splash-m1 installer after a confirm (see Install). M3+: puts `brew install incoai/tap/splash` into the editor as a `!!` line. Says so when the runtime is already there. |
+| `/splash update` | Same, when `releases/latest` differs from `<launcher> --version`. Refuses while any Splash server runs. |
 
 ## Mac detection (`src/mac.ts`)
 
@@ -95,14 +96,72 @@ Numbers are refreshed when docs/quants.md is (1.7.1-m1 re-run in progress).
 
 Doctor reads the latest tag from the `releases/latest` redirect of
 `paperniuk/splash` (splash-m1) or `incoai/splash` (no API rate limit) and,
-when it differs from `<launcher> --version`, prints the update command. The
-package still never installs Splash itself.
+when it differs from `<launcher> --version`, points to `/splash update`.
+
+## Install (`src/install.ts`, splash-m1 only, 0.1.5)
+
+- Same result as a manual install: `install-m1.sh` unpacks into
+  `~/Library/Application Support/Splash-M1/<tag>`, switches the `current`
+  symlink and writes the `splash-m1` wrapper (`/opt/homebrew/bin` if
+  writable, else `~/.local/bin`, or `$SPLASH_BIN_DIR`). No own location: two
+  Splash copies would leave it unclear which one starts.
+- The tag is resolved first and the confirm names it, the script URL
+  (`releases/download/<tag>/install-m1.sh`, not `latest/`), the archive size
+  (HEAD, 118 MB for 1.7.3-m1), the install dir and the wrapper path (and
+  whether it is on PATH). The script is fetched to a private temp file and
+  run as `sh <file>` with `SPLASH_M1_VERSION=<tag>`, not `curl | sh`
+  (no pipefail in sh). The script itself checks the archive SHA-256.
+- Refuses while any Splash server runs (runtime records `serve-*.json` and
+  `owned-*.json` with a live pid, any port), checked before the confirm and
+  again under the lock: the wrapper execs `current/python`, and a same-tag
+  reinstall deletes the directory the server runs from.
+- One install at a time: `~/.pi/agent/splash/install.lock`, created whole
+  with `link(2)` from a temp file (never seen empty), updated by rename, a
+  stale one reclaimed by renaming it away (one contender wins). Holds the Pi
+  pid and the installer pid; held while either lives and for at most 60 min
+  (pid reuse). A Pi that exits mid-install still blocks others until the
+  installer ends. Status, doctor and `/splash install|update` in other
+  sessions show the phase. `/splash start` refuses while it is held and takes
+  the same lock (kind `start`) from its last check until `owned-P.json` is
+  written, so a start and an install cannot pass each other's checks.
+- Servers count as running only when the pid's command line contains
+  "splash" (an `owned-P.json` left by a crashed server must not block updates
+  after pid reuse).
+- The installer runs detached in its own process group with output in
+  `~/.pi/agent/splash/install.log` (a file, not a pipe: a pipe would kill it
+  with SIGPIPE when Pi exits). No cancel: the download is ~1 min, and a stop
+  during the swap would leave a half install. Phase from the log: curl
+  `--progress-bar` percent (it writes `\r` updates to a file too), then
+  "checking and unpacking".
+- After: `<bin>/splash-m1 --version` must report the tag. Then the launcher
+  is resolved again the way `/splash start` does (config `launcher`, PATH,
+  then `$SPLASH_BIN_DIR`, `/opt/homebrew/bin`, `~/.local/bin`); if that is a
+  different file with another version, a warning names both. On failure: the
+  installer's own error line, whether `current` moved, the log path, and the
+  terminal command as a fallback (printed, never put into the editor from the
+  background).
+- Disk: refuses under archive x5 + 0.5 GB free (1.7.3-m1 unpacks to 392 MB).
+- No UI (print/json mode): writes the terminal command to stderr (notify is a
+  no-op there). RPC: the confirm times out after 2 min as a no.
+- A session that closes while the script is being fetched does not start it;
+  one that closes later leaves the installer running, and the lock is
+  released when it exits.
+- Config `launcher`: a bare name is looked up on PATH, a path must be
+  executable.
+- Reviewed by Codex twice (design, then implementation; second pass found the
+  lock and start/install races fixed above).
+- Measured live (isolated HOME, SPLASH_M1_HOME, SPLASH_BIN_DIR) 2026-11-27:
+  fresh install 71 s; refuse with a server record; failing mirror; second
+  session during install (install/start/status); Pi killed mid-install, lock
+  held by the installer, install completes; update shadowed by an older
+  `splash-m1` on PATH warns.
 
 ## Server lifecycle (`src/server.ts`)
 
-- Launcher: `splash-m1` or `splash` on PATH, by chip. Missing -> doctor prints
-  the install line (`curl ... install-m1.sh | sh` or
-  `brew install incoai/tap/splash`).
+- Launcher: `splash-m1` or `splash` on PATH by chip, else in
+  `$SPLASH_BIN_DIR`, `/opt/homebrew/bin` or `~/.local/bin` (where
+  `install-m1.sh` puts it; `~/.local/bin` is often not on PATH). Missing ->
+  doctor points to `/splash install`.
 - Start: `caffeinate -i <launcher> serve --model M <flags> --port P`, detached
   (own process group, `unref`), stdout/stderr to
   `~/.pi/agent/splash/serve-P.log`, rewritten on each start. `caffeinate -i` keeps the Mac from idle
