@@ -1,0 +1,27 @@
+name: Bench report
+description: Share /splash bench results from your Mac
+title: "Bench: "
+labels: [bench]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Run `/splash bench` in Pi, then `/splash bench share` to fill this form. Or paste the report by hand.
+  - type: textarea
+    id: report
+    attributes:
+      label: Report
+      description: The text block from /splash bench, as is.
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: apps
+    attributes:
+      label: Other heavy apps open during the bench
+      placeholder: "none / Chrome with 30 tabs / Docker / Xcode"
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Anything odd, like swap growth, a slow start, or a model that did not fit.

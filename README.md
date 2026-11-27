@@ -65,6 +65,7 @@ In Pi:
 /splash                status and the next step
 /splash use            switch to a Splash server started outside Pi
 /splash bench [--long] measure speed and memory use on the running server
+/splash bench share    open a prefilled GitHub issue with the last bench report
 /splash stop           stop the server
 /splash log            last lines of the server log
 /splash install        put the runtime's install command into the editor
@@ -91,8 +92,13 @@ are, unless the first message is a few words long.
 `/splash bench` measures prompt processing, cache reuse, decode speed and memory
 use for any model started with `/splash start <repo or repo:QUANT>`. Close other
 heavy apps and allow a few minutes, or longer with `--long` for a 32K prompt
-if the context allows it. We welcome results as
-[issues in this repo](https://github.com/sady4850/pi-splash-server/issues).
+if the context allows it.
+
+To share the result, run `/splash bench share`. It opens a
+[bench report issue](https://github.com/sady4850/pi-splash-server/issues/new?template=bench.yml)
+with the report filled in; nothing is sent until you press Submit. The report
+has the chip, memory, macOS, runtime, model, server flags (paths and keys
+removed) and the numbers.
 
 ## What it picks
 

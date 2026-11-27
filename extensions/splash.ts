@@ -1,8 +1,9 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { readFileSync } from "node:fs";
+import { execFile } from "node:child_process";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { runBench } from "../src/bench.ts";
-import { benchReport } from "../src/bench-report.ts";
+import { benchReport, shareUrl } from "../src/bench-report.ts";
 import { detectMac, macosWarning, runtimeFor } from "../src/mac.ts";
 import { DRAFT_GB, loadEntries, recommend, diskWarnings, isDownloaded } from "../src/recommend.ts";
 import { bytes, bytesOnDisk, downloadLabel, downloadLines, downloadNotice, gb, planDownload } from "../src/download.ts";
@@ -213,13 +214,24 @@ export default async function (pi: ExtensionAPI) {
     const progress = (text: string) => ctx.ui.setStatus("splash", `splash: bench ${text}`);
     try {
       const { result, filename } = await runBench(p, long, signal, launcher, progress);
-      ctx.ui.notify(`${benchReport(result)}\nJSON: ~/.pi/agent/splash/${filename}`, result.error ? "error" : "info");
+      const share = result.error ? "" : "\nShare: /splash bench share opens a prefilled GitHub issue, you check it and submit";
+      ctx.ui.notify(`${benchReport(result)}\nJSON: ~/.pi/agent/splash/${filename}${share}`, result.error ? "error" : "info");
     } catch (e) {
       ctx.ui.notify(`Splash bench: ${signal.aborted ? "aborted" : e instanceof Error ? e.message : String(e)}`, "error");
     } finally {
       bench = null;
       ctx.ui.setStatus("splash", undefined);
     }
+  }
+
+  function shareCmd(ctx: any) {
+    const latest = readdirSync(STATE_DIR).filter((f) => /^bench-.*\.json$/.test(f)).sort().pop();
+    if (!latest) return ctx.ui.notify("No bench results yet. Run /splash bench first.", "error");
+    const url = shareUrl(JSON.parse(readFileSync(join(STATE_DIR, latest), "utf8")));
+    execFile("/usr/bin/open", [url], (e) => {
+      if (e) ctx.ui.notify(`Could not open the browser. Open this link:\n${url}`, "error");
+      else ctx.ui.notify(`Opened a prefilled GitHub issue for ${latest}. Check it and press Submit.`, "info");
+    });
   }
 
   async function stopCmd(ctx: any) {
@@ -294,9 +306,9 @@ export default async function (pi: ExtensionAPI) {
   });
 
   pi.registerCommand("splash", {
-    description: "Local Splash server: status, doctor, start [model], bench [--long], stop, use, log, install, update",
+    description: "Local Splash server: status, doctor, start [model], bench [--long | share], stop, use, log, install, update",
     getArgumentCompletions: (prefix: string) => {
-      const items = ["doctor", "start", "bench", "bench --long", "stop", "use", "log", "install", "update"].filter((s) => s.startsWith(prefix)).map((s) => ({ value: s, label: s }));
+      const items = ["doctor", "start", "bench", "bench --long", "bench share", "stop", "use", "log", "install", "update"].filter((s) => s.startsWith(prefix)).map((s) => ({ value: s, label: s }));
       return items.length ? items : null;
     },
     handler: async (args: string, ctx: any) => {
@@ -309,7 +321,8 @@ export default async function (pi: ExtensionAPI) {
         case "start":
           return startCmd(rest[0], ctx);
         case "bench": {
-          if (rest.length && !(rest.length === 1 && rest[0] === "--long")) return ctx.ui.notify("Usage: /splash bench [--long]", "error");
+          if (rest.length === 1 && rest[0] === "share") return shareCmd(ctx);
+          if (rest.length && !(rest.length === 1 && rest[0] === "--long")) return ctx.ui.notify("Usage: /splash bench [--long | share]", "error");
           if (bench) return ctx.ui.notify("A Splash bench is already running.", "info");
           const abort = new AbortController();
           bench = { abort, done: benchmark(rest[0] === "--long", ctx, abort.signal) };

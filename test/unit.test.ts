@@ -229,6 +229,53 @@ test("bench median and range", async () => {
   assert.equal(stats([]), null);
 });
 
+test("bench report aligns one line per test", async () => {
+  const { benchReport } = await import("../src/bench-report.ts");
+  const req = (test: string, o: any) => ({ test, promptTokens: 1000, completionTokens: 1, cachedTokens: 0, ttftMs: 6850,
+    timings: { prompt_per_second: 147.8 }, latency: {}, draftAcceptance: null, ...o });
+  const requests = [
+    req("prefill 1K", { timings: { prompt_per_second: 145.1 } }),
+    req("prefill 1K", {}),
+    req("prefill 1K", { cachedTokens: 16 }),
+    req("prefill 8K", { promptTokens: 8181, ttftMs: 49750, timings: { prompt_per_second: 164.4 } }),
+    req("replay 8K", { promptTokens: 8181, cachedTokens: 8160, ttftMs: 440, timings: { prompt_per_second: 48 } }),
+    req("code", { promptTokens: 383, completionTokens: 256, timings: { predicted_per_second: 39.6 }, draftAcceptance: 0.774 }),
+    req("prose", { promptTokens: 60, completionTokens: 256, timings: { predicted_per_second: 22 }, draftAcceptance: null }),
+  ];
+  const report = benchReport({ benchVersion: 1, durationMs: 141_000, long: false, requests, counts: [],
+    environment: { packageVersion: "0.1.2", chip: "Apple M1 Pro", memoryGB: 32, macos: "27.2.1", runtime: "splash-m1",
+      runtimeVersion: "1.7.3-m1", model: "org/m", context: 65536, flags: "--max-memory 21G", flagsSource: "start" },
+    before: { swapGB: 0.87, freePercent: 24 }, after: { swapGB: 0.87, freePercent: 18 } } as any);
+  assert.equal(report, [
+    "pi-splash-server 0.1.2, bench v1",
+    "Mac:     Apple M1 Pro, 32 GB, macOS 27.2.1",
+    "Runtime: splash-m1 1.7.3-m1",
+    "Model:   org/m, 64K context",
+    "Flags:   --max-memory 21G",
+    "",
+    "Prefill 1K    147.8 tok/s   TTFT   6.85 s   1000 tok, 3 runs: 145.1-147.8, cache hit in run #3",
+    "Prefill 8K    164.4 tok/s   TTFT  49.75 s   8181 tok",
+    "Replay 8K                   TTFT   0.44 s   8160 of 8181 tok cached",
+    "Decode code    39.6 tok/s   draft     77%   256 tok",
+    "Decode prose   22.0 tok/s   draft       -   256 tok",
+    "",
+    "Memory: swap 0.9 -> 0.9 GB, free 24% -> 18%. Took 2 min 21 s.",
+  ].join("\n"));
+});
+
+test("bench share url prefills the issue form", async () => {
+  const { benchReport, shareUrl } = await import("../src/bench-report.ts");
+  const result = { benchVersion: 1, durationMs: 1000, long: false, requests: [], counts: [],
+    environment: { packageVersion: "0.1.3", chip: "Apple M1 Pro", memoryGB: 32, macos: "27.2.1", runtime: "splash-m1",
+      model: "mlx-community/Qwen3.8-27B-GPTQ-4bit", context: 65536, flags: "", flagsSource: "start" },
+    before: {}, after: {} } as any;
+  const url = new URL(shareUrl(result));
+  assert.equal(url.origin + url.pathname, "https://github.com/sady4850/pi-splash-server/issues/new");
+  assert.equal(url.searchParams.get("template"), "bench.yml");
+  assert.equal(url.searchParams.get("title"), "Bench: Apple M1 Pro 32 GB, Qwen3.8-27B-GPTQ-4bit");
+  assert.equal(url.searchParams.get("report"), benchReport(result));
+});
+
 test("bench response preserves server timings, cache hits and optional draft counts", async () => {
   const { parseMeasurement } = await import("../src/bench.ts");
   const usage = { prompt_tokens: 8192, completion_tokens: 128, prompt_tokens_details: { cached_tokens: 8176 } };
